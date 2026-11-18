@@ -197,6 +197,39 @@
     .ctx-menu button:hover { background: #f7f3eb; }
     .ctx-menu button.danger { color: var(--danger); }
     .ctx-menu button.danger:hover { background: var(--danger-soft); }
+
+    /* ===== 任务连线（虚线） ===== */
+    .mindmap-link {
+      fill: none;
+      stroke: var(--ink);
+      stroke-opacity: 0.42;
+      stroke-width: 1.6;
+      stroke-dasharray: 7 6;
+      stroke-linecap: round;
+    }
+    .mindmap-link.done { stroke: var(--accent); stroke-opacity: 0.5; }
+
+    /* 连线模式：光标与提示 */
+    body.linking, body.linking * { cursor: crosshair !important; }
+    .link-hint {
+      position: fixed;
+      left: 50%;
+      bottom: 26px;
+      transform: translateX(-50%);
+      z-index: 1200;
+      max-width: 82vw;
+      background: var(--ink);
+      color: #fffdf8;
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      box-shadow: var(--shadow);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .link-hint[hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -211,28 +244,39 @@
   <div id="ctxMenu" class="ctx-menu" hidden>
     <button type="button" data-act="add">+ 分支</button>
     <button type="button" data-act="rename">改名</button>
+    <button type="button" data-act="link">连线</button>
+    <button type="button" data-act="unlink">取消连线</button>
     <button type="button" class="danger" data-act="delete">删除</button>
   </div>
+
+  <div id="linkHint" class="link-hint" hidden></div>
 
   <script>
     const STORAGE_KEY = "signin-tracker-v1";
     const DEFAULT_NODES = [
-      { id: "gvideo", name: "短视频", parentId: null },
-      { id: "gred", name: "红包活动", parentId: null },
-      { id: "ks", name: "快手极速版", parentId: "gvideo" },
-      { id: "dy", name: "抖音极速版", parentId: "gvideo" },
-      { id: "hg", name: "红果免费短剧", parentId: "gvideo" },
-      { id: "xg", name: "西瓜视频", parentId: "gvideo" },
-      { id: "hm", name: "河马畅听", parentId: null },
-      { id: "haima", name: "海马畅听", parentId: null },
-      { id: "jd", name: "京东秒杀转盘", parentId: "gred" },
-      { id: "fn", name: "富农红包", parentId: "gred" },
-      { id: "dx", name: "滴选系列", parentId: null },
-      { id: "yhj", name: "有好价", parentId: null },
-      { id: "mt", name: "美团视频", parentId: "gvideo" },
-      { id: "zfb", name: "玩赚支付宝", parentId: "gred" },
-      { id: "hj", name: "红色火箭", parentId: null },
-      { id: "tc", name: "同程打卡", parentId: null }
+      { id: "nmwiyegtzm0v4", name: "昆仑数模", parentId: null, done: false, completedAt: "" },
+      { id: "nmwiyekmtshvg", name: "上海大学", parentId: null, done: false, completedAt: "" },
+      { id: "nmwiyes47mg9k", name: "王静", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+      { id: "nmwiyf1ofag9i", name: "G5二次开发", parentId: "nmwiyes47mg9k", done: false, completedAt: "" },
+      { id: "nmwiyfd4n5bi5", name: "宋亦诚", parentId: "nmwiyekmtshvg", done: false, completedAt: "" },
+      { id: "nmwiyfjkrrj1t", name: "有限元作业批改", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+      { id: "nmwiyg84eqd74", name: "基于标架场的全四边形动网格", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+      { id: "nmwiyh6f0uvi5", name: "上机作业@第三周", parentId: "nmwiyfjkrrj1t", done: true, completedAt: "2026-11-17 16:10" },
+      { id: "nmwiyhe7ow45g", name: "上机作业@第四周", parentId: "nmwiyfjkrrj1t", done: false, completedAt: "" },
+      { id: "nmwiyhi0un6d9", name: "代码", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhmuh3kk8", name: "算例", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhrdyz4x1", name: "文章本体", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhvwukpr5", name: "PPT汇报", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+      { id: "nmwiyi34z6iem", name: "昆仑的工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+      { id: "nmwiyi6ogqspx", name: "科研工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+      { id: "nmwkexync69fx", name: "G5输出三角形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkey9gw84md", name: "程序读取节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkeyg24u5em", name: "G5读取四边形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkezurhvevm", name: "读取三角形节点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf046xe2ip", name: "布置/光滑标架场", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf08uatt86", name: "找奇异点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf0d77uxqr", name: "分块", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf0i9b3ft6", name: "生成四边形网格", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" }
     ];
 
     const pad = n => String(n).padStart(2, "0");
@@ -321,6 +365,36 @@
       return nodes;
     }
 
+    // 任务连线：无向边 { a, b }，规范化时按 a < b 排序去重；只保留两端都存在的节点。
+    function normalizeLinks(rawLinks, nodes) {
+      const links = [];
+      if (!Array.isArray(rawLinks)) return links;
+      const idSet = new Set(nodes.map(n => n.id));
+      const seen = new Set();
+      for (const l of rawLinks) {
+        if (!l || typeof l !== "object") continue;
+        let a = String(l.a || ""), b = String(l.b || "");
+        if (!a || !b || a === b) continue;
+        if (!idSet.has(a) || !idSet.has(b)) continue;
+        if (a > b) { const t = a; a = b; b = t; }
+        const key = a + "\u0000" + b;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        links.push({ a, b });
+      }
+      return links;
+    }
+    // 联动完成标记：{ [nodeId]: true }，表示该节点是被连线另一端连带完成的。
+    function normalizeLinkDone(rawLinkDone, nodes) {
+      const linkDone = {};
+      if (rawLinkDone && typeof rawLinkDone === "object") {
+        for (const n of nodes) {
+          if (rawLinkDone[n.id]) linkDone[n.id] = true;
+        }
+      }
+      return linkDone;
+    }
+
     // 统一节点模型：完成状态挂在节点上（done + completedAt），不随日期切换。
     // 兼容旧版 nodeChecks[date][id] 以及更早的 items/categories/checks。
     function normalizeState(data) {
@@ -332,7 +406,12 @@
           done: !!n.done,
           completedAt: n.completedAt || ""
         }));
-        return { nodes: finalizeNodes(nodes, data.nodeChecks) };
+        const finalNodes = finalizeNodes(nodes, data.nodeChecks);
+        return {
+          nodes: finalNodes,
+          links: normalizeLinks(data.links, finalNodes),
+          linkDone: normalizeLinkDone(data.linkDone, finalNodes)
+        };
       }
 
       const cats = Array.isArray(data.categories) ? data.categories : [];
@@ -387,23 +466,97 @@
           }
         }
       }
-      return { nodes: finalizeNodes(nodes, nodeChecks) };
+      const finalNodes = finalizeNodes(nodes, nodeChecks);
+      return {
+        nodes: finalNodes,
+        links: normalizeLinks(data.links, finalNodes),
+        linkDone: normalizeLinkDone(data.linkDone, finalNodes)
+      };
     }
 
-    function load() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const data = JSON.parse(raw);
-          if (data && (Array.isArray(data.nodes) || Array.isArray(data.items))) {
-            return normalizeState(data);
-          }
-        }
-      } catch (e) {}
+    // ---------- 本地数据迁移 ----------
+    // 用户树数据版本：已带此版本的本地数据不再迁移。
+    const TREE_VERSION = 2;
+    // 用户树根节点 id（存在即说明本地已是用户树或包含用户后来添加的记录）
+    const USER_ROOT_ID = "nmwiyegtzm0v4";
+    // 旧示例树的默认节点 id 集合（短视频 / 红包活动等）
+    const LEGACY_SAMPLE_IDS = new Set([
+      "gvideo", "gred", "ks", "dy", "hg", "xg", "hm", "haima",
+      "jd", "fn", "dx", "yhj", "mt", "zfb", "hj", "tc"
+    ]);
+    // 旧示例树特征：节点名称含「短视频」或「红包活动」
+    const LEGACY_NAME_RE = /短视频|红包活动/;
+
+    function freshUserTreeState() {
       return normalizeState({
-        nodes: DEFAULT_NODES.map(x => ({ ...x, done: false, completedAt: "" }))
+        nodes: DEFAULT_NODES.map(x => ({
+          ...x,
+          done: !!(x && x.done),
+          completedAt: (x && x.completedAt) || ""
+        })),
+        links: [],
+        linkDone: {}
       });
     }
+
+    // 从旧格式数据中取出全部节点 id（兼容 nodes / items / categories）
+    function collectStoredNodeIds(data) {
+      const ids = [];
+      if (Array.isArray(data.nodes)) {
+        for (const n of data.nodes) if (n && n.id != null) ids.push(String(n.id));
+      }
+      if (Array.isArray(data.items)) {
+        for (const it of data.items) if (it && it.id != null) ids.push(String(it.id));
+      }
+      if (Array.isArray(data.categories)) {
+        for (const c of data.categories) if (c && c.id != null) ids.push(String(c.id));
+      }
+      return ids;
+    }
+
+    // 判断本地数据是否「只是」旧示例树：
+    // 已是新版（treeVersion）不迁移；含用户树根 id 或任何旧集合之外的 id（用户后加记录）不迁移；
+    // 只有当所有节点 id 都落在旧默认集合内且不含用户树根 id 时，才视为可安全替换的旧示例数据。
+    function isLegacySampleOnly(data) {
+      if (!data || data.treeVersion === TREE_VERSION) return false;
+      const ids = collectStoredNodeIds(data);
+      if (!ids.length) return false;
+      if (ids.includes(USER_ROOT_ID)) return false;
+      if (!ids.every(id => LEGACY_SAMPLE_IDS.has(id))) return false;
+      // 名称特征仅作旁证：节点里应能找到旧示例的典型名称
+      const names = (Array.isArray(data.nodes) ? data.nodes : [])
+        .map(n => (n && n.name) || "");
+      return names.some(nm => LEGACY_NAME_RE.test(nm)) || ids.every(id => LEGACY_SAMPLE_IDS.has(id));
+    }
+
+    // 纯函数：给定 localStorage 原始字符串，决定加载结果（便于测试注入）
+    function resolveState(raw) {
+      if (raw) {
+        try {
+          const data = JSON.parse(raw);
+          if (data && (Array.isArray(data.nodes) || Array.isArray(data.items))) {
+            if (isLegacySampleOnly(data)) {
+              // 只是旧示例树：丢弃，改用用户树默认数据（保留其 done / completedAt）
+              return withTreeVersion(freshUserTreeState());
+            }
+            // 含用户树节点或用户后加记录：原样保留（节点、完成状态、连线）
+            return withTreeVersion(normalizeState(data));
+          }
+        } catch (e) {}
+      }
+      return withTreeVersion(freshUserTreeState());
+    }
+
+    function withTreeVersion(st) {
+      st.treeVersion = TREE_VERSION;
+      return st;
+    }
+
+    // localStorage 做成可注入的读取器，默认直连浏览器
+    const readStorage = () => {
+      try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+    };
+    function load() { return resolveState(readStorage()); }
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
     let state = load();
@@ -426,6 +579,58 @@
         cur = cur.parentId ? nodeById(cur.parentId) : null;
       }
       return false;
+    }
+
+    // ---------- 任务连线（无向图） ----------
+    function linksOf(id) { return state.links.filter(l => l.a === id || l.b === id); }
+    function otherEndOf(link, id) { return link.a === id ? link.b : link.a; }
+    function hasLinkBetween(a, b) {
+      const [x, y] = a < b ? [a, b] : [b, a];
+      return state.links.some(l => l.a === x && l.b === y);
+    }
+    // 沿连线可达的所有其他节点（防环）
+    function linkedComponent(startId) {
+      const visited = new Set([startId]);
+      const stack = [startId];
+      while (stack.length) {
+        const cur = stack.pop();
+        for (const l of linksOf(cur)) {
+          const o = otherEndOf(l, cur);
+          if (!visited.has(o)) { visited.add(o); stack.push(o); }
+        }
+      }
+      visited.delete(startId);
+      return [...visited];
+    }
+    // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记
+    function setNodeDoneWithLeaves(nodeId, done, at, viaLink) {
+      for (const lid of collectLeafIds(nodeId)) {
+        const leaf = nodeById(lid);
+        if (!leaf) continue;
+        leaf.done = done;
+        leaf.completedAt = done ? (at || nowCompletedAt()) : "";
+      }
+      if (done && viaLink) state.linkDone[nodeId] = true;
+      else delete state.linkDone[nodeId];
+    }
+    function addLinkBetween(a, b) {
+      if (!a || !b || a === b || hasLinkBetween(a, b)) return false;
+      const na = nodeById(a), nb = nodeById(b);
+      if (!na || !nb) return false;
+      const [x, y] = a < b ? [a, b] : [b, a];
+      state.links.push({ a: x, b: y });
+      // 一端已完成、另一端未完成：把未完成的一端连带完成并打联动标记
+      const da = nodeDone(na), db = nodeDone(nb);
+      if (da && !db) setNodeDoneWithLeaves(b, true, nodeCompletedAt(na) || nowCompletedAt(), true);
+      else if (db && !da) setNodeDoneWithLeaves(a, true, nodeCompletedAt(nb) || nowCompletedAt(), true);
+      save();
+      return true;
+    }
+    // 取消连线：不改任何完成状态，只删边
+    function removeLinkBetween(a, b) {
+      const [x, y] = a < b ? [a, b] : [b, a];
+      state.links = state.links.filter(l => !(l.a === x && l.b === y));
+      save();
     }
 
     function isLeaf(node) { return childNodes(node.id).length === 0; }
@@ -615,7 +820,27 @@
           const color = to.done ? DONE_HEX : TODO_HEX;
           return `<path class="mindmap-branch" d="${d}" fill="${color}" />`;
         }).join("");
-        svg.innerHTML = paths;
+
+        // 任务连线：连接两个节点按钮中心的虚线
+        const btnCenter = refId => {
+          const nodeEl = box.querySelector(`.mm-node[data-ntype="node"][data-ref="${CSS.escape(refId)}"]`);
+          if (!nodeEl) return null;
+          const btn = nodeEl.querySelector(".node-btn");
+          if (!btn) return null;
+          return {
+            x: nodeEl.offsetLeft + btn.offsetWidth / 2,
+            y: nodeEl.offsetTop,
+            done: btn.classList.contains("done")
+          };
+        };
+        const linkPaths = state.links.map(l => {
+          const ca = btnCenter(l.a), cb = btnCenter(l.b);
+          if (!ca || !cb) return "";
+          const cls = ["mindmap-link", (ca.done && cb.done) ? "done" : ""].filter(Boolean).join(" ");
+          return `<path class="${cls}" d="M ${ca.x} ${ca.y} L ${cb.x} ${cb.y}" />`;
+        }).join("");
+
+        svg.innerHTML = paths + linkPaths;
       });
     }
 
@@ -649,13 +874,97 @@
       ctxTarget = null;
     }
 
+    // ---------- 连线模式 ----------
+    // linkMode = { kind: "add" | "remove", sourceId }，为 null 表示不在连线模式
+    let linkMode = null;
+    const linkHintEl = document.getElementById("linkHint");
+    let linkHintTimer = null;
+
+    function showLinkHint(text, sticky) {
+      if (!linkHintEl) return;
+      clearTimeout(linkHintTimer);
+      linkHintTimer = null;
+      linkHintEl.textContent = text;
+      linkHintEl.hidden = false;
+      if (!sticky) linkHintTimer = setTimeout(hideLinkHint, 1800);
+    }
+    function hideLinkHint() {
+      if (!linkHintEl) return;
+      clearTimeout(linkHintTimer);
+      linkHintTimer = null;
+      linkHintEl.hidden = true;
+    }
+    function applyLinkModeUi() {
+      document.body.classList.toggle("linking", !!linkMode);
+    }
+    function exitLinkMode(notice) {
+      linkMode = null;
+      applyLinkModeUi();
+      hideLinkHint();
+      if (notice) showLinkHint(notice, false);
+    }
+    function enterLinkMode(sourceId, kind) {
+      closeMenu();
+      closeEditor(false);
+      linkMode = { sourceId, kind };
+      applyLinkModeUi();
+      showLinkHint(
+        kind === "add"
+          ? "连线：请点击要连接的另一个任务，按 Esc 取消"
+          : "取消连线：请点击要断开的另一端，按 Esc 取消",
+        true
+      );
+    }
+    // 连线模式下点击某个任务节点
+    function handleLinkTargetClick(targetId) {
+      if (!linkMode) return;
+      const src = linkMode.sourceId;
+      if (linkMode.kind === "add") {
+        if (targetId === src) {
+          showLinkHint("不能与自己连线，请点击其他任务", true);
+          return;
+        }
+        if (hasLinkBetween(src, targetId)) {
+          exitLinkMode("这两个任务已经连线过了");
+          render();
+          return;
+        }
+        if (addLinkBetween(src, targetId)) {
+          exitLinkMode("已连线");
+        } else {
+          showLinkHint("无法连线到该任务，请重试", true);
+        }
+        render();
+      } else {
+        if (!hasLinkBetween(src, targetId)) {
+          showLinkHint("该任务未与起点相连，请点击相连的任务", true);
+          return;
+        }
+        removeLinkBetween(src, targetId);
+        exitLinkMode("已取消连线");
+        render();
+      }
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && linkMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        exitLinkMode("已取消连线操作");
+      }
+    }, true);
+
     function openMenu(e, nodeEl) {
       e.preventDefault();
       e.stopPropagation();
       closeEditor(false);
+      if (linkMode) exitLinkMode();
       const isRoot = nodeEl.dataset.ntype === "root";
       ctxTarget = { refId: nodeEl.dataset.ref || "", isRoot };
+      const hasLinks = !isRoot && !!ctxTarget.refId && linksOf(ctxTarget.refId).length > 0;
       ctxMenu.querySelector('[data-act="rename"]').hidden = isRoot;
+      ctxMenu.querySelector('[data-act="link"]').hidden = isRoot;
+      ctxMenu.querySelector('[data-act="unlink"]').hidden = !hasLinks;
       ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
       ctxMenu.hidden = false;
       ctxMenu.style.left = e.clientX + "px";
@@ -770,25 +1079,47 @@
         if (n.parentId === node.id) n.parentId = newParent;
       }
       state.nodes = state.nodes.filter(n => n.id !== node.id);
+      // 删除该节点涉及的所有连线与联动完成标记（子节点自己的连线保持不变）
+      state.links = state.links.filter(l => l.a !== node.id && l.b !== node.id);
+      delete state.linkDone[node.id];
       save(); render();
     }
 
     catTree.addEventListener("click", e => {
       if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add")) return;
+      // 连线模式下：点击节点只用于完成/断开连线，不触发打卡切换
+      if (linkMode) {
+        const nodeEl = e.target.closest(".mm-node");
+        if (nodeEl && nodeEl.dataset.ntype === "node" && nodeEl.dataset.ref) {
+          handleLinkTargetClick(nodeEl.dataset.ref);
+        } else {
+          showLinkHint("请点击一个任务节点，或按 Esc 取消", true);
+        }
+        return;
+      }
       const toggleBtn = e.target.closest("button[data-toggle]");
       if (toggleBtn) {
         if (editor) { closeEditor(false); return; }
         const id = toggleBtn.dataset.toggle;
         const node = nodeById(id);
         if (!node) return;
-        const leafIds = collectLeafIds(id);
         const nextDone = !nodeDone(node);
         const now = nowCompletedAt();
-        for (const lid of leafIds) {
-          const leaf = nodeById(lid);
-          if (!leaf) continue;
-          leaf.done = nextDone;
-          leaf.completedAt = nextDone ? now : "";
+        // 用户的主动打卡：亲自点击的节点不打联动标记（若原来是联动完成，此时改为用户自己的记录/取消）
+        setNodeDoneWithLeaves(id, nextDone, nextDone ? now : "", false);
+        if (nextDone) {
+          // 打成完成：沿连线把尚未完成的相连节点连带完成，并打「联动完成」标记
+          for (const other of linkedComponent(id)) {
+            const oNode = nodeById(other);
+            if (!oNode || nodeDone(oNode)) continue;
+            setNodeDoneWithLeaves(other, true, now, true);
+          }
+        } else {
+          // 取消完成：只把带「联动完成」标记的相连节点同步取消；用户自己打卡完成的不动
+          for (const other of linkedComponent(id)) {
+            if (!state.linkDone[other]) continue;
+            setNodeDoneWithLeaves(other, false, "", false);
+          }
         }
         save(); render();
       }
@@ -803,6 +1134,16 @@
       if (act === "add") startAddEditor(refId || null);
       else if (act === "rename") startRenameEditor(refId);
       else if (act === "delete") deleteNode(refId);
+      else if (act === "link") enterLinkMode(refId, "add");
+      else if (act === "unlink") {
+        const ls = linksOf(refId);
+        if (ls.length === 1) {
+          removeLinkBetween(refId, otherEndOf(ls[0], refId));
+          render();
+        } else {
+          enterLinkMode(refId, "remove");
+        }
+      }
     });
     ctxMenu.addEventListener("pointerdown", e => e.stopPropagation());
     ctxMenu.addEventListener("contextmenu", e => e.preventDefault());
@@ -815,6 +1156,7 @@
       }
       e.preventDefault();
       closeMenu();
+      if (linkMode) { exitLinkMode("已取消连线操作"); return; } // 连线模式优先，不误开新增分支
       startAddEditor(null);
     });
 
@@ -827,6 +1169,7 @@
     mindmapStage.addEventListener("pointerdown", e => {
       if (e.button !== 0) return;
       if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .ctx-menu")) return;
+      if (linkMode) { exitLinkMode("已取消连线操作"); } // 点击空白取消连线模式（平移仍可用）
       panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
       mindmapStage.classList.add("panning");
       try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
@@ -876,7 +1219,7 @@
     let dragId = null;
 
     catTree.addEventListener("dragstart", e => {
-      if (editor) { e.preventDefault(); return; }
+      if (editor || linkMode) { e.preventDefault(); return; }
       const node = e.target.closest(".mm-node[draggable='true']");
       if (!node) return;
       dragId = node.dataset.ref;
