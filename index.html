@@ -198,16 +198,16 @@
     .ctx-menu button.danger { color: var(--danger); }
     .ctx-menu button.danger:hover { background: var(--danger-soft); }
 
-    /* ===== 任务连线（虚线） ===== */
+    /* ===== 任务连线（绕障有机曲线虚线，与分支同色系） ===== */
     .mindmap-link {
       fill: none;
-      stroke: var(--ink);
-      stroke-opacity: 0.42;
-      stroke-width: 1.6;
-      stroke-dasharray: 7 6;
+      stroke: #b42318; /* TODO_HEX，与未完成分支同色 */
+      stroke-opacity: 0.82;
+      stroke-width: 2.6;
+      stroke-dasharray: 9 7;
       stroke-linecap: round;
     }
-    .mindmap-link.done { stroke: var(--accent); stroke-opacity: 0.5; }
+    .mindmap-link.done { stroke: #1f6b4a; stroke-opacity: 0.85; }
 
     /* 连线模式：光标与提示 */
     body.linking, body.linking * { cursor: crosshair !important; }
@@ -735,6 +735,214 @@
       pan.y = Math.min(sh - margin, Math.max(margin - bh, pan.y));
     }
 
+    /* ==== ROUTE-LIB-START ====
+       任务连线绕障路由（纯函数，无 DOM 依赖）：
+       收集卡片包围盒 → 向外膨胀成障碍 → 端点取卡片外缘接驳点 →
+       先试「分支同款平滑贝塞尔」，撞障碍则 A* 栅格搜折线 → Chaikin 平滑 →
+       Catmull-Rom 转三次贝塞尔（有机曲线，与 mindmap-branch 同类形状）。
+       route-selfcheck.mjs 会抽取本段做几何自检。 */
+    const RL_MARGIN = 12; // 障碍膨胀边距（卡片外扩后视为不可走）
+    const RL_CELL = 12;   // A* 栅格边长
+    const RL_EXIT = 18;   // 端点卡片在接驳边一侧留出的出口宽度
+
+    function rlRect(x, y, w, h) { return { x, y, w, h }; }
+    function rlInflate(r, m) { return { x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m }; }
+    function rlCenter(r) { return { x: r.x + r.w / 2, y: r.y + r.h / 2 }; }
+    function rlPointInRect(x, y, r) {
+      return x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+    }
+    // Liang-Barsky：线段是否与矩形（含边界）相交
+    function rlSegHitsRect(x1, y1, x2, y2, r) {
+      let t0 = 0, t1 = 1;
+      const dx = x2 - x1, dy = y2 - y1;
+      const p = [-dx, dx, -dy, dy];
+      const q = [x1 - r.x, r.x + r.w - x1, y1 - r.y, r.y + r.h - y1];
+      for (let i = 0; i < 4; i++) {
+        if (p[i] === 0) { if (q[i] < 0) return false; }
+        else {
+          const t = q[i] / p[i];
+          if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+          else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+      }
+      return true;
+    }
+    function rlSegHitsAny(x1, y1, x2, y2, rects) {
+      for (const r of rects) if (rlSegHitsRect(x1, y1, x2, y2, r)) return true;
+      return false;
+    }
+    // 接驳点：端点卡片四条边中点里离对方中心最近的一个（朝向对方/更空旷一侧）
+    function rlAttachPoint(rect, tx, ty) {
+      const cands = [
+        { x: rect.x, y: rect.y + rect.h / 2 },
+        { x: rect.x + rect.w, y: rect.y + rect.h / 2 },
+        { x: rect.x + rect.w / 2, y: rect.y },
+        { x: rect.x + rect.w / 2, y: rect.y + rect.h }
+      ];
+      let best = cands[0], bd = Infinity;
+      for (const c of cands) {
+        const d = (c.x - tx) * (c.x - tx) + (c.y - ty) * (c.y - ty);
+        if (d < bd) { bd = d; best = c; }
+      }
+      return best;
+    }
+    // 端点卡片：封住内部，但在接驳边一侧留出出口，避免路径绕回穿卡
+    function rlEndpointBlock(rect, attach) {
+      const E = RL_EXIT;
+      if (attach.x >= rect.x + rect.w - 1) return rlRect(rect.x, rect.y, Math.max(1, rect.w - E), rect.h);
+      if (attach.x <= rect.x + 1) return rlRect(rect.x + E, rect.y, Math.max(1, rect.w - E), rect.h);
+      if (attach.y <= rect.y + 1) return rlRect(rect.x, rect.y + E, rect.w, Math.max(1, rect.h - E));
+      return rlRect(rect.x, rect.y, rect.w, Math.max(1, rect.h - E));
+    }
+    function rlSampleCubic(p, c1, c2, q, n) {
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, u = 1 - t;
+        pts.push({
+          x: u * u * u * p.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * q.x,
+          y: u * u * u * p.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * q.y
+        });
+      }
+      return pts;
+    }
+    // 与分支同款控制点的平滑三次贝塞尔（两点直连时保持有机观感）
+    function rlTwoPointCurve(p, q) {
+      const dx = q.x - p.x;
+      const c1 = { x: p.x + dx * 0.52, y: p.y };
+      const c2 = { x: p.x + dx * 0.45, y: q.y };
+      const d = "M " + p.x.toFixed(1) + " " + p.y.toFixed(1) +
+        " C " + c1.x.toFixed(1) + " " + c1.y.toFixed(1) + ", " +
+        c2.x.toFixed(1) + " " + c2.y.toFixed(1) + ", " + q.x.toFixed(1) + " " + q.y.toFixed(1);
+      return { d: d, pts: rlSampleCubic(p, c1, c2, q, 24) };
+    }
+    // A* 栅格搜索：返回避开障碍的折线（端点为精确接驳点），失败返回 null
+    function rlAStar(a, b, obstacles, bounds) {
+      const cell = RL_CELL;
+      const ox = bounds.x1, oy = bounds.y1;
+      const cols = Math.max(2, Math.ceil((bounds.x2 - bounds.x1) / cell) + 1);
+      const rows = Math.max(2, Math.ceil((bounds.y2 - bounds.y1) / cell) + 1);
+      const N = cols * rows;
+      const blocked = new Uint8Array(N);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cx = ox + c * cell, cy = oy + r * cell;
+          for (const o of obstacles) {
+            if (rlPointInRect(cx, cy, o)) { blocked[r * cols + c] = 1; break; }
+          }
+        }
+      }
+      const sc = Math.max(0, Math.min(cols - 1, Math.round((a.x - ox) / cell)));
+      const sr = Math.max(0, Math.min(rows - 1, Math.round((a.y - oy) / cell)));
+      const gc = Math.max(0, Math.min(cols - 1, Math.round((b.x - ox) / cell)));
+      const gr = Math.max(0, Math.min(rows - 1, Math.round((b.y - oy) / cell)));
+      const start = sr * cols + sc, goal = gr * cols + gc;
+      if (start === goal) return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
+      blocked[start] = 0; blocked[goal] = 0; // 接驳点贴卡片边缘，起终格总可走
+      const g = new Float64Array(N).fill(Infinity);
+      const came = new Int32Array(N).fill(-1);
+      const closed = new Uint8Array(N);
+      const hCost = (r, c) => {
+        const dx = Math.abs(c - gc), dy = Math.abs(r - gr);
+        return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+      };
+      g[start] = 0;
+      const open = [[hCost(sr, sc), 0, start]];
+      const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+        [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+      let found = false, guard = 0;
+      while (open.length && guard++ < 400000) {
+        open.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+        const id = open.shift()[2];
+        if (closed[id]) continue;
+        closed[id] = 1;
+        if (id === goal) { found = true; break; }
+        const r = Math.floor(id / cols), c = id % cols;
+        for (const dir of DIRS) {
+          const nc = c + dir[0], nr = r + dir[1];
+          if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+          const nid = nr * cols + nc;
+          if (blocked[nid] || closed[nid]) continue;
+          if (dir[0] !== 0 && dir[1] !== 0 &&
+            (blocked[r * cols + nc] || blocked[nr * cols + c])) continue; // 不斜穿缝
+          const ng = g[id] + dir[2];
+          if (ng < g[nid]) {
+            g[nid] = ng; came[nid] = id;
+            open.push([ng + hCost(nr, nc), guard, nid]);
+          }
+        }
+      }
+      if (!found) return null;
+      const pts = [];
+      let cur = goal;
+      while (cur !== -1) {
+        pts.push({ x: ox + (cur % cols) * cell, y: oy + Math.floor(cur / cols) * cell });
+        cur = came[cur];
+      }
+      pts.reverse();
+      pts[0] = { x: a.x, y: a.y };
+      pts[pts.length - 1] = { x: b.x, y: b.y };
+      return pts;
+    }
+    // Chaikin 切角平滑
+    function rlChaikin(pts, iter) {
+      let cur = pts;
+      for (let k = 0; k < (iter || 2); k++) {
+        if (cur.length < 3) break;
+        const next = [cur[0]];
+        for (let i = 0; i < cur.length - 1; i++) {
+          const p = cur[i], q = cur[i + 1];
+          next.push({ x: p.x * 0.75 + q.x * 0.25, y: p.y * 0.75 + q.y * 0.25 });
+          next.push({ x: p.x * 0.25 + q.x * 0.75, y: p.y * 0.25 + q.y * 0.75 });
+        }
+        next.push(cur[cur.length - 1]);
+        cur = next;
+      }
+      return cur;
+    }
+    const rlF = v => Math.round(v * 10) / 10;
+    // 平滑折线 → 有机三次贝塞尔 path（Catmull-Rom 转 Bezier），返回 { d, pts }
+    function rlSmoothPath(pts) {
+      const P = rlChaikin(pts, 2);
+      if (P.length < 2) return { d: "", pts: P };
+      if (P.length === 2) return rlTwoPointCurve(P[0], P[1]);
+      const n = P.length;
+      const at = i => P[Math.max(0, Math.min(n - 1, i))];
+      const d = ["M " + rlF(P[0].x) + " " + rlF(P[0].y)];
+      const sample = [P[0]];
+      for (let i = 0; i < n - 1; i++) {
+        const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+        const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+        const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+        d.push("C " + rlF(c1.x) + " " + rlF(c1.y) + ", " + rlF(c2.x) + " " + rlF(c2.y) + ", " + rlF(p2.x) + " " + rlF(p2.y));
+        const seg = rlSampleCubic(p1, c1, c2, p2, 4);
+        for (let k = 1; k < seg.length; k++) sample.push(seg[k]);
+      }
+      return { d: d.join(" "), pts: sample };
+    }
+    // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用），
+    // hardRects 为全部卡片（两端卡片只封「除接驳边以外的内部」），softRects 为
+    // 分支走廊/已有连线等软障碍（先带着绕，绕不开再降级）。返回 { d, pts }。
+    function rlPlanLinkPath(aRect, bRect, hardRects, softRects, bounds) {
+      const ca = rlCenter(aRect), cb = rlCenter(bRect);
+      const pa = rlAttachPoint(aRect, cb.x, cb.y);
+      const pb = rlAttachPoint(bRect, ca.x, ca.y);
+      const hard = hardRects
+        .filter(r => r !== aRect && r !== bRect)
+        .map(r => rlInflate(r, RL_MARGIN));
+      hard.push(rlEndpointBlock(aRect, pa));
+      hard.push(rlEndpointBlock(bRect, pb));
+      const soft = (softRects || []).map(r => rlInflate(r, 6));
+      const trySets = soft.length ? [hard.concat(soft), hard] : [hard];
+      for (const obs of trySets) {
+        const direct = rlTwoPointCurve(pa, pb);
+        if (!direct.pts.some(p => obs.some(o => rlPointInRect(p.x, p.y, o)))) return direct;
+        const poly = rlAStar(pa, pb, obs, bounds);
+        if (poly) return rlSmoothPath(poly);
+      }
+      return rlTwoPointCurve(pa, pb); // 兜底
+    }
+    /* ==== ROUTE-LIB-END ==== */
+
     function renderTree() {
       const box = document.getElementById("catTree");
       const root = buildMindData();
@@ -793,6 +1001,8 @@
       requestAnimationFrame(() => {
         const svg = document.getElementById("mindSvg");
         if (!svg) return;
+        // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带）
+        const branchCorridors = [];
         const paths = edges.map(({ from, to }) => {
           const elFrom = box.querySelector(`[data-nid="${from.nid}"] .node-btn`);
           const elTo = box.querySelector(`[data-nid="${to.nid}"] .node-btn`);
@@ -801,6 +1011,11 @@
           const y1 = from.y;
           const x2 = to.x + 2;
           const y2 = to.y;
+
+          branchCorridors.push(rlRect(
+            Math.min(x1, x2), Math.min(y1, y2),
+            Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
+          ));
 
           const w1 = from.depth === 0 ? 6.5 : (from.depth === 1 ? 3.8 : 2.2);
           const w2 = to.depth === 1 ? 2.4 : (to.depth === 2 ? 1.1 : 0.8);
@@ -821,26 +1036,35 @@
           return `<path class="mindmap-branch" d="${d}" fill="${color}" />`;
         }).join("");
 
-        // 任务连线：连接两个节点按钮中心的虚线
-        const btnCenter = refId => {
-          const nodeEl = box.querySelector(`.mm-node[data-ntype="node"][data-ref="${CSS.escape(refId)}"]`);
-          if (!nodeEl) return null;
-          const btn = nodeEl.querySelector(".node-btn");
-          if (!btn) return null;
-          return {
-            x: nodeEl.offsetLeft + btn.offsetWidth / 2,
-            y: nodeEl.offsetTop,
+        // 任务连线：每次渲染收集当前卡片几何（box 本地坐标，与分支一致，缩放仍正确），
+        // 在卡片外缘接驳、绕开其他卡片与分支走廊，重新规划有机虚线曲线
+        const cardRects = [];
+        box.querySelectorAll(".mm-node").forEach(el => {
+          const btn = el.querySelector(".node-btn");
+          if (!btn) return;
+          cardRects.push({
+            ref: el.dataset.ref || "",
+            x: el.offsetLeft,
+            y: el.offsetTop - btn.offsetHeight / 2,
+            w: btn.offsetWidth,
+            h: btn.offsetHeight,
             done: btn.classList.contains("done")
-          };
-        };
-        const linkPaths = state.links.map(l => {
-          const ca = btnCenter(l.a), cb = btnCenter(l.b);
-          if (!ca || !cb) return "";
-          const cls = ["mindmap-link", (ca.done && cb.done) ? "done" : ""].filter(Boolean).join(" ");
-          return `<path class="${cls}" d="M ${ca.x} ${ca.y} L ${cb.x} ${cb.y}" />`;
-        }).join("");
+          });
+        });
+        const linkBounds = { x1: -80, y1: -80, x2: totalW + 80, y2: totalH + 80 };
+        const linkOut = [];
+        const linkSoft = []; // 已画连线采样成小矩形，让后续连线互相错开
+        for (const l of state.links) {
+          const ra = cardRects.find(r => r.ref === l.a);
+          const rb = cardRects.find(r => r.ref === l.b);
+          if (!ra || !rb) continue;
+          const cls = ["mindmap-link", (ra.done && rb.done) ? "done" : ""].filter(Boolean).join(" ");
+          const planned = rlPlanLinkPath(ra, rb, cardRects, branchCorridors.concat(linkSoft), linkBounds);
+          linkOut.push(`<path class="${cls}" d="${planned.d}" />`);
+          for (const p of planned.pts) linkSoft.push(rlRect(p.x - 5, p.y - 5, 10, 10));
+        }
 
-        svg.innerHTML = paths + linkPaths;
+        svg.innerHTML = paths + linkOut.join("");
       });
     }
 
