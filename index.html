@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>综合签到打卡器</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --paper: #fffdf8;
+      --ink: #1e2430;
+      --muted: #6b7280;
+      --line: #e6dfd2;
+      --accent: #1f6b4a;
+      --accent-soft: #e7f4ee;
+      --danger: #b42318;
+      --danger-soft: #fdeeea;
+      --shadow: 0 10px 30px rgba(30, 36, 48, 0.07);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; font-weight: 400; }
+    html, body { margin: 0; height: 100%; }
+    body, button, input, select {
+      font-family: "Times New Roman", "SimSun", "宋体", serif;
+      font-weight: 400;
+    }
+    body {
+      background:
+        radial-gradient(900px 400px at 10% -10%, #efe6d4 0%, transparent 55%),
+        var(--bg);
+      color: var(--ink);
+      overflow: hidden;
+    }
+    .wrap {
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    button {
+      cursor: pointer; border: 1px solid var(--line);
+      background: #fff; color: var(--ink); border-radius: 10px;
+      padding: 6px 10px;
+    }
+    button:hover { background: #f7f3eb; }
+    button.ghost { background: transparent; }
+
+    /* ===== 全屏树状图 ===== */
+    .tree-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(600px 300px at 85% 20%, rgba(31, 107, 74, 0.04), transparent 70%),
+        radial-gradient(500px 300px at 20% 80%, rgba(180, 35, 24, 0.03), transparent 70%),
+        var(--paper);
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 0;
+    }
+
+    .mindmap-stage {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+    }
+    .mindmap-stage.panning { cursor: grabbing; }
+    .mindmap-canvas {
+      position: relative;
+      min-height: 360px;
+      margin: 0 auto;
+      transform-origin: 0 0;
+    }
+    .mindmap-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .mindmap-branch {
+      transition: fill 0.25s ease, opacity 0.25s ease;
+      opacity: 0.85;
+    }
+    .mm-node {
+      position: absolute;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      z-index: 2;
+      white-space: nowrap;
+      padding: 4px 0;
+    }
+    .mm-node[draggable="true"] { cursor: grab; }
+    .mm-node.dragging { opacity: 0.45; }
+    .mm-node.drag-over > .node-btn {
+      outline: 2px dashed var(--accent);
+      outline-offset: 3px;
+      transform: scale(1.04);
+    }
+
+    .node-btn {
+      position: relative;
+      display: inline-flex; align-items: center; gap: 7px;
+      border: 1.5px solid var(--line); background: #fff;
+      border-radius: 999px; padding: 6px 14px; font-size: 13.5px;
+      box-shadow: 0 3px 10px rgba(30, 36, 48, 0.05);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+      overflow: visible;
+    }
+    .mm-node[data-depth="0"] .node-btn {
+      padding: 8px 18px; font-size: 15px;
+      box-shadow: 0 6px 18px rgba(30, 36, 48, 0.09);
+    }
+    .mm-node[data-depth="1"] .node-btn {
+      padding: 7px 15px; font-size: 14px;
+    }
+    .node-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(30, 36, 48, 0.1); }
+    .node-btn.toggle { border-style: dashed; }
+    .node-btn:not(.done) { background: var(--danger-soft); border-color: #f0c9c6; color: var(--danger); }
+    .node-btn.done { background: var(--accent-soft); border-color: #bfe0cf; border-style: solid; color: var(--accent); }
+    .node-btn .state { font-size: 12px; opacity: 0.9; }
+    .node-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--danger); flex-shrink: 0;
+    }
+    .node-btn.done .node-dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(31, 107, 74, 0.16); }
+    .node-time {
+      position: absolute;
+      right: 10px;
+      top: calc(100% + 2px);
+      font-size: 10px;
+      line-height: 1;
+      color: var(--muted);
+      pointer-events: none;
+      white-space: nowrap;
+      letter-spacing: 0;
+    }
+
+    .mm-node:hover { z-index: 10; }
+    .mm-node.editing { z-index: 20; }
+
+    .node-inline-input {
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 400;
+      border: 1.5px solid var(--accent);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 6px 14px;
+      outline: none;
+      min-width: 108px;
+      max-width: 220px;
+      width: 9em;
+      box-shadow: 0 3px 10px rgba(30, 36, 48, 0.08);
+    }
+    .mm-inline-add {
+      position: absolute;
+      z-index: 20;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .ctx-menu {
+      position: fixed;
+      z-index: 1000;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 4px;
+      width: max-content;
+      min-width: 96px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .ctx-menu[hidden],
+    .ctx-menu button[hidden] { display: none !important; }
+    .ctx-menu button {
+      text-align: left;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+    .ctx-menu button:hover { background: #f7f3eb; }
+    .ctx-menu button.danger { color: var(--danger); }
+    .ctx-menu button.danger:hover { background: var(--danger-soft); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="tree-card">
+      <div class="mindmap-stage" id="mindmapStage">
+        <div class="mindmap-canvas" id="catTree"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="ctxMenu" class="ctx-menu" hidden>
+    <button type="button" data-act="add">+ 分支</button>
+    <button type="button" data-act="rename">改名</button>
+    <button type="button" class="danger" data-act="delete">删除</button>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "signin-tracker-v1";
+    const DEFAULT_NODES = [
+      { id: "gvideo", name: "短视频", parentId: null },
+      { id: "gred", name: "红包活动", parentId: null },
+      { id: "ks", name: "快手极速版", parentId: "gvideo" },
+      { id: "dy", name: "抖音极速版", parentId: "gvideo" },
+      { id: "hg", name: "红果免费短剧", parentId: "gvideo" },
+      { id: "xg", name: "西瓜视频", parentId: "gvideo" },
+      { id: "hm", name: "河马畅听", parentId: null },
+      { id: "haima", name: "海马畅听", parentId: null },
+      { id: "jd", name: "京东秒杀转盘", parentId: "gred" },
+      { id: "fn", name: "富农红包", parentId: "gred" },
+      { id: "dx", name: "滴选系列", parentId: null },
+      { id: "yhj", name: "有好价", parentId: null },
+      { id: "mt", name: "美团视频", parentId: "gvideo" },
+      { id: "zfb", name: "玩赚支付宝", parentId: "gred" },
+      { id: "hj", name: "红色火箭", parentId: null },
+      { id: "tc", name: "同程打卡", parentId: null }
+    ];
+
+    const pad = n => String(n).padStart(2, "0");
+    const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const todayIso = () => iso(new Date());
+
+    const DONE_HEX = "#1f6b4a";
+    const TODO_HEX = "#b42318";
+
+    function formatShanghai(date) {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false
+      }).formatToParts(date);
+      const get = t => (parts.find(p => p.type === t) || {}).value || "";
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+    }
+    function nowCompletedAt() { return formatShanghai(new Date()); }
+    function normalizeAt(at, dateFallback) {
+      if (at) {
+        const raw = String(at).trim();
+        if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) {
+          const d = new Date(raw.replace(" ", "T"));
+          if (!Number.isNaN(d.getTime())) return formatShanghai(d);
+          return raw.slice(0, 16).replace("T", " ");
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw + " 00:00";
+        const parsed = Date.parse(raw);
+        if (!Number.isNaN(parsed)) return formatShanghai(new Date(parsed));
+      }
+      if (dateFallback && /^\d{4}-\d{2}-\d{2}$/.test(dateFallback)) return dateFallback + " 00:00";
+      return "";
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, ch => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[ch]));
+    }
+    function latestDoneFromChecks(nodeChecks) {
+      const latest = {};
+      if (!nodeChecks || typeof nodeChecks !== "object") return latest;
+      for (const [date, rec] of Object.entries(nodeChecks)) {
+        if (!rec || typeof rec !== "object") continue;
+        for (const [id, val] of Object.entries(rec)) {
+          if (!(val && val.done)) continue;
+          const at = normalizeAt(val.at, date);
+          if (!latest[id] || at > latest[id]) latest[id] = at;
+        }
+      }
+      return latest;
+    }
+
+    function finalizeNodes(nodes, nodeChecks) {
+      const history = latestDoneFromChecks(nodeChecks);
+      const idSet = new Set(nodes.map(n => n.id));
+      for (const n of nodes) {
+        if (n.parentId && !idSet.has(n.parentId)) n.parentId = null;
+        const histAt = history[n.id] || "";
+        const ownAt = normalizeAt(n.completedAt, "");
+        let done = !!n.done || !!histAt;
+        let completedAt = "";
+        if (done) {
+          completedAt = ownAt && histAt ? (ownAt > histAt ? ownAt : histAt) : (ownAt || histAt);
+        }
+        n.done = done;
+        n.completedAt = completedAt;
+      }
+      // 若某分支在历史记录里已完成，但下级叶子尚未带上完成标记，则一并补上，避免父级完成态丢失
+      const kidsOf = id => nodes.filter(n => (n.parentId || null) === id);
+      const leavesOf = id => {
+        const kids = kidsOf(id);
+        if (!kids.length) return nodes.filter(n => n.id === id);
+        return kids.flatMap(k => leavesOf(k.id));
+      };
+      for (const n of nodes) {
+        if (!n.done || !kidsOf(n.id).length) continue;
+        for (const leaf of leavesOf(n.id)) {
+          if (!leaf.done) {
+            leaf.done = true;
+            leaf.completedAt = leaf.completedAt || n.completedAt;
+          }
+        }
+      }
+      return nodes;
+    }
+
+    // 统一节点模型：完成状态挂在节点上（done + completedAt），不随日期切换。
+    // 兼容旧版 nodeChecks[date][id] 以及更早的 items/categories/checks。
+    function normalizeState(data) {
+      if (Array.isArray(data.nodes)) {
+        const nodes = data.nodes.map(n => ({
+          id: String(n.id),
+          name: String(n.name || ""),
+          parentId: n.parentId ? String(n.parentId) : null,
+          done: !!n.done,
+          completedAt: n.completedAt || ""
+        }));
+        return { nodes: finalizeNodes(nodes, data.nodeChecks) };
+      }
+
+      const cats = Array.isArray(data.categories) ? data.categories : [];
+      const items = Array.isArray(data.items) ? data.items : [];
+      const nodes = [];
+      const seen = new Set();
+      for (const c of cats) {
+        const id = String(c.id);
+        if (!seen.has(id)) {
+          seen.add(id);
+          nodes.push({
+            id, name: String(c.name || ""), parentId: c.parentId ? String(c.parentId) : null,
+            done: false, completedAt: ""
+          });
+        }
+      }
+      for (const it of items) {
+        let id = String(it.id);
+        if (seen.has(id)) id = "n_" + id;
+        seen.add(id);
+        nodes.push({
+          id,
+          name: String(it.name || ""),
+          parentId: it.categoryId ? String(it.categoryId) : null,
+          done: false,
+          completedAt: ""
+        });
+      }
+
+      const nodeChecks = {};
+      const oldChecks = (data.checks && typeof data.checks === "object") ? data.checks : {};
+      const oldCatChecks = (data.categoryChecks && typeof data.categoryChecks === "object") ? data.categoryChecks : {};
+      for (const d of new Set([...Object.keys(oldChecks), ...Object.keys(oldCatChecks)])) {
+        nodeChecks[d] = {};
+        const dc = oldChecks[d] || {};
+        for (const k of Object.keys(dc)) {
+          if (dc[k] && dc[k].done) nodeChecks[d][k] = { done: true, at: dc[k].at || "" };
+        }
+        const dcc = oldCatChecks[d] || {};
+        for (const k of Object.keys(dcc)) {
+          if (dcc[k] && dcc[k].done) nodeChecks[d][k] = { done: true, at: dcc[k].at || "" };
+        }
+      }
+      if (data.nodeChecks && typeof data.nodeChecks === "object") {
+        for (const d of Object.keys(data.nodeChecks)) {
+          if (!nodeChecks[d]) nodeChecks[d] = {};
+          const rec = data.nodeChecks[d] || {};
+          for (const k of Object.keys(rec)) {
+            if (rec[k] && rec[k].done) {
+              nodeChecks[d][k] = { done: true, at: rec[k].at || (nodeChecks[d][k] && nodeChecks[d][k].at) || "" };
+            }
+          }
+        }
+      }
+      return { nodes: finalizeNodes(nodes, nodeChecks) };
+    }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && (Array.isArray(data.nodes) || Array.isArray(data.items))) {
+            return normalizeState(data);
+          }
+        }
+      } catch (e) {}
+      return normalizeState({
+        nodes: DEFAULT_NODES.map(x => ({ ...x, done: false, completedAt: "" }))
+      });
+    }
+    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+    let state = load();
+    let pan = { x: 0, y: 0 };
+    let scale = 1;
+    let panDrag = null;
+
+    const ZOOM_MIN = 0.3;
+    const ZOOM_MAX = 3;
+
+    function nodeById(id) { return state.nodes.find(n => n.id === id) || null; }
+    function childNodes(parentId) {
+      const p = parentId || null;
+      return state.nodes.filter(n => (n.parentId || null) === p);
+    }
+    function isDescendant(possibleDescId, ancestorId) {
+      let cur = nodeById(possibleDescId), guard = 0;
+      while (cur && guard++ < 50) {
+        if (cur.id === ancestorId) return true;
+        cur = cur.parentId ? nodeById(cur.parentId) : null;
+      }
+      return false;
+    }
+
+    function isLeaf(node) { return childNodes(node.id).length === 0; }
+    function nodeDone(node) {
+      if (!node) return false;
+      const kids = childNodes(node.id);
+      if (!kids.length) return !!node.done;
+      return kids.every(k => nodeDone(k));
+    }
+    function nodeCompletedAt(node) {
+      if (!node || !nodeDone(node)) return "";
+      const kids = childNodes(node.id);
+      if (!kids.length) return node.completedAt || "";
+      let latest = "";
+      for (const k of kids) {
+        const t = nodeCompletedAt(k);
+        if (t && t > latest) latest = t;
+      }
+      return latest;
+    }
+    function rootDone() {
+      const kids = childNodes(null);
+      return kids.length ? kids.every(k => nodeDone(k)) : false;
+    }
+    function rootCompletedAt() {
+      const kids = childNodes(null);
+      if (!kids.length || !rootDone()) return "";
+      let latest = "";
+      for (const k of kids) {
+        const t = nodeCompletedAt(k);
+        if (t && t > latest) latest = t;
+      }
+      return latest;
+    }
+
+    function nodeBtnHtml(opts) {
+      const toggleAttr = opts.toggle ? ` data-toggle="${escapeHtml(opts.id)}"` : "";
+      const cls = [
+        "node-btn",
+        opts.toggle ? "toggle" : "",
+        opts.done ? "done" : ""
+      ].filter(Boolean).join(" ");
+      const time = opts.done && opts.completedAt
+        ? `<span class="node-time">${escapeHtml(opts.completedAt)}</span>`
+        : "";
+      return `<button type="button" class="${cls}"${toggleAttr} title="${escapeHtml(opts.tip)}">
+        <span class="node-dot"></span>
+        <span class="node-name">${escapeHtml(opts.name)}</span>
+        <span class="state">${opts.done ? "✓" : ""}</span>
+        ${time}
+      </button>`;
+    }
+
+    function buildMindData() {
+      let uid = 0;
+      const buildNode = (n, depth) => {
+        const kids = childNodes(n.id);
+        const leaf = kids.length === 0;
+        const done = nodeDone(n);
+        const completedAt = nodeCompletedAt(n);
+        const tip = leaf ? "末梢节点：点击切换完成，拖拽可调整层级，右键可增删改" : "分支节点：点击可批量切换下级，拖拽可调整层级，右键可增删改";
+        return {
+          nid: "n" + (++uid),
+          depth,
+          done,
+          ntype: "node",
+          refId: n.id,
+          draggable: true,
+          html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, toggle: true, tip }),
+          children: kids.map(k => buildNode(k, depth + 1))
+        };
+      };
+
+      const rDone = rootDone();
+      return {
+        nid: "n" + (++uid),
+        depth: 0,
+        done: rDone,
+        ntype: "root",
+        refId: "",
+        draggable: false,
+        html: nodeBtnHtml({ id: "", name: "全部项目", done: rDone, completedAt: rootCompletedAt(), toggle: false, tip: "根节点：可拖入任意分支将其升为一级，右键可新增一级分支" }),
+        children: childNodes(null).map(k => buildNode(k, 1))
+      };
+    }
+
+    function applyPan() {
+      const box = document.getElementById("catTree");
+      if (!box) return;
+      box.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${scale})`;
+    }
+
+    function clampPan() {
+      const stage = document.getElementById("mindmapStage");
+      const box = document.getElementById("catTree");
+      if (!stage || !box) return;
+      const sw = stage.clientWidth, sh = stage.clientHeight;
+      // 平移量作用于缩放之前，因此可平移范围要按缩放后的画布尺寸计算
+      const bw = box.offsetWidth * scale, bh = box.offsetHeight * scale;
+      const margin = 80;
+      pan.x = Math.min(sw - margin, Math.max(margin - bw, pan.x));
+      pan.y = Math.min(sh - margin, Math.max(margin - bh, pan.y));
+    }
+
+    function renderTree() {
+      const box = document.getElementById("catTree");
+      const root = buildMindData();
+
+      const ROW_H = 56;
+      const PAD_Y = 28;
+      const LEVEL_GAP = 250;
+      const PAD_X = 24;
+      let maxDepth = 0;
+
+      function measureLeaves(node) {
+        if (node.depth > maxDepth) maxDepth = node.depth;
+        if (!node.children.length) { node.span = 1; return 1; }
+        node.span = node.children.reduce((sum, ch) => sum + measureLeaves(ch), 0);
+        return node.span;
+      }
+      measureLeaves(root);
+
+      const allNodes = [];
+      const edges = [];
+      function layout(node, yStart) {
+        const h = node.span * ROW_H;
+        node.y = yStart + h / 2;
+        node.x = PAD_X + node.depth * LEVEL_GAP;
+        allNodes.push(node);
+        let curY = yStart;
+        for (const ch of node.children) {
+          layout(ch, curY);
+          edges.push({ from: node, to: ch });
+          curY += ch.span * ROW_H;
+        }
+      }
+      layout(root, PAD_Y);
+
+      const totalH = Math.max(360, root.span * ROW_H + PAD_Y * 2);
+      const totalW = Math.max(920, PAD_X * 2 + (maxDepth + 1) * LEVEL_GAP + 60);
+
+      box.style.width = totalW + "px";
+      box.style.height = totalH + "px";
+
+      box.innerHTML = `<svg class="mindmap-svg" id="mindSvg" viewBox="0 0 ${totalW} ${totalH}"></svg>` +
+        allNodes.map(n => `
+          <div class="mm-node"
+               data-nid="${n.nid}"
+               data-depth="${n.depth}"
+               data-ntype="${n.ntype}"
+               data-ref="${escapeHtml(n.refId)}"
+               draggable="${n.draggable ? "true" : "false"}"
+               style="left:${n.x}px; top:${n.y}px;">
+            ${n.html}
+          </div>
+        `).join("");
+
+      applyPan();
+
+      requestAnimationFrame(() => {
+        const svg = document.getElementById("mindSvg");
+        if (!svg) return;
+        const paths = edges.map(({ from, to }) => {
+          const elFrom = box.querySelector(`[data-nid="${from.nid}"] .node-btn`);
+          const elTo = box.querySelector(`[data-nid="${to.nid}"] .node-btn`);
+          if (!elFrom || !elTo) return "";
+          const x1 = from.x + elFrom.offsetWidth - 2;
+          const y1 = from.y;
+          const x2 = to.x + 2;
+          const y2 = to.y;
+
+          const w1 = from.depth === 0 ? 6.5 : (from.depth === 1 ? 3.8 : 2.2);
+          const w2 = to.depth === 1 ? 2.4 : (to.depth === 2 ? 1.1 : 0.8);
+
+          const dx = x2 - x1;
+          const cx1 = x1 + dx * 0.52;
+          const cx2 = x1 + dx * 0.45;
+
+          const d = [
+            `M ${x1} ${y1 - w1}`,
+            `C ${cx1} ${y1 - w1}, ${cx2} ${y2 - w2}, ${x2} ${y2 - w2}`,
+            `L ${x2} ${y2 + w2}`,
+            `C ${cx2} ${y2 + w2}, ${cx1} ${y1 + w1}, ${x1} ${y1 + w1}`,
+            `Z`
+          ].join(" ");
+
+          const color = to.done ? DONE_HEX : TODO_HEX;
+          return `<path class="mindmap-branch" d="${d}" fill="${color}" />`;
+        }).join("");
+        svg.innerHTML = paths;
+      });
+    }
+
+    function render() { renderTree(); }
+
+    // ---------- 树点击交互 ----------
+    const catTree = document.getElementById("catTree");
+    const mindmapStage = document.getElementById("mindmapStage");
+
+    function collectLeafIds(nodeId) {
+      const kids = childNodes(nodeId);
+      if (!kids.length) return [nodeId];
+      return kids.flatMap(k => collectLeafIds(k.id));
+    }
+
+    const ctxMenu = document.getElementById("ctxMenu");
+    let ctxTarget = null;
+    let editor = null;
+
+    function findNodeEl(refId) {
+      if (!refId) return catTree.querySelector('.mm-node[data-ntype="root"]');
+      const nodes = catTree.querySelectorAll('.mm-node[data-ntype="node"]');
+      for (const el of nodes) {
+        if (el.dataset.ref === refId) return el;
+      }
+      return null;
+    }
+
+    function closeMenu() {
+      ctxMenu.hidden = true;
+      ctxTarget = null;
+    }
+
+    function openMenu(e, nodeEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeEditor(false);
+      const isRoot = nodeEl.dataset.ntype === "root";
+      ctxTarget = { refId: nodeEl.dataset.ref || "", isRoot };
+      ctxMenu.querySelector('[data-act="rename"]').hidden = isRoot;
+      ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
+      ctxMenu.hidden = false;
+      ctxMenu.style.left = e.clientX + "px";
+      ctxMenu.style.top = e.clientY + "px";
+      requestAnimationFrame(() => {
+        const r = ctxMenu.getBoundingClientRect();
+        if (r.right > innerWidth - 8) ctxMenu.style.left = Math.max(8, innerWidth - r.width - 8) + "px";
+        if (r.bottom > innerHeight - 8) ctxMenu.style.top = Math.max(8, innerHeight - r.height - 8) + "px";
+      });
+    }
+
+    function closeEditor(commit) {
+      if (!editor) return;
+      const ed = editor;
+      editor = null;
+      const value = ed.input ? ed.input.value.trim().slice(0, 40) : "";
+      if (ed.wrap && ed.wrap.parentNode) ed.wrap.remove();
+      if (commit && value) {
+        if (ed.mode === "rename") {
+          const node = nodeById(ed.nodeId);
+          if (node && node.name !== value) {
+            node.name = value;
+            save();
+          }
+        } else if (ed.mode === "add") {
+          state.nodes.push({
+            id: "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+            name: value,
+            parentId: ed.parentId || null,
+            done: false,
+            completedAt: ""
+          });
+          save();
+        }
+        render();
+      } else if (ed.mode === "rename") {
+        renderTree();
+      }
+    }
+
+    function bindEditorInput(input) {
+      input.addEventListener("pointerdown", e => e.stopPropagation());
+      input.addEventListener("mousedown", e => e.stopPropagation());
+      input.addEventListener("click", e => e.stopPropagation());
+      input.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (!input.value.trim()) return;
+          closeEditor(true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          closeEditor(false);
+        }
+      });
+    }
+
+    function startRenameEditor(nodeId) {
+      const node = nodeById(nodeId);
+      const nodeEl = findNodeEl(nodeId);
+      if (!node || !nodeEl) return;
+      closeEditor(false);
+      const btn = nodeEl.querySelector(".node-btn");
+      if (!btn) return;
+      nodeEl.classList.add("editing");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "node-inline-input";
+      input.maxLength = 40;
+      input.value = node.name;
+      input.setAttribute("aria-label", "修改名称");
+      btn.style.display = "none";
+      nodeEl.insertBefore(input, btn);
+      editor = { mode: "rename", nodeId, input, wrap: input };
+      bindEditorInput(input);
+      input.focus();
+      input.select();
+    }
+
+    function startAddEditor(parentId) {
+      const parentEl = findNodeEl(parentId || "");
+      if (!parentEl) return;
+      closeEditor(false);
+      const btn = parentEl.querySelector(".node-btn");
+      const wrap = document.createElement("div");
+      wrap.className = "mm-inline-add";
+      wrap.style.left = (parentEl.offsetLeft + (btn ? btn.offsetWidth : parentEl.offsetWidth) + 16) + "px";
+      wrap.style.top = parentEl.offsetTop + "px";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "node-inline-input";
+      input.maxLength = 40;
+      input.value = "";
+      input.setAttribute("aria-label", parentId ? "新分支名称" : "新的一级分支名称");
+      input.placeholder = "输入名称";
+      wrap.appendChild(input);
+      catTree.appendChild(wrap);
+      editor = { mode: "add", parentId: parentId || null, input, wrap };
+      bindEditorInput(input);
+      input.focus();
+    }
+
+    function deleteNode(nodeId) {
+      const node = nodeById(nodeId);
+      if (!node) return;
+      const kids = childNodes(node.id);
+      const msg = kids.length
+        ? `「${node.name}」下的子分支将升到上一级，完成状态保留。确定删除？`
+        : `确定删除「${node.name}」？`;
+      if (!confirm(msg)) return;
+      const newParent = node.parentId || null;
+      for (const n of state.nodes) {
+        if (n.parentId === node.id) n.parentId = newParent;
+      }
+      state.nodes = state.nodes.filter(n => n.id !== node.id);
+      save(); render();
+    }
+
+    catTree.addEventListener("click", e => {
+      if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add")) return;
+      const toggleBtn = e.target.closest("button[data-toggle]");
+      if (toggleBtn) {
+        if (editor) { closeEditor(false); return; }
+        const id = toggleBtn.dataset.toggle;
+        const node = nodeById(id);
+        if (!node) return;
+        const leafIds = collectLeafIds(id);
+        const nextDone = !nodeDone(node);
+        const now = nowCompletedAt();
+        for (const lid of leafIds) {
+          const leaf = nodeById(lid);
+          if (!leaf) continue;
+          leaf.done = nextDone;
+          leaf.completedAt = nextDone ? now : "";
+        }
+        save(); render();
+      }
+    });
+
+    ctxMenu.addEventListener("click", e => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn || !ctxTarget) return;
+      const act = btn.dataset.act;
+      const refId = ctxTarget.refId;
+      closeMenu();
+      if (act === "add") startAddEditor(refId || null);
+      else if (act === "rename") startRenameEditor(refId);
+      else if (act === "delete") deleteNode(refId);
+    });
+    ctxMenu.addEventListener("pointerdown", e => e.stopPropagation());
+    ctxMenu.addEventListener("contextmenu", e => e.preventDefault());
+
+    mindmapStage.addEventListener("contextmenu", e => {
+      const nodeEl = e.target.closest(".mm-node");
+      if (nodeEl) {
+        openMenu(e, nodeEl);
+        return;
+      }
+      e.preventDefault();
+      closeMenu();
+      startAddEditor(null);
+    });
+
+    document.addEventListener("pointerdown", e => {
+      if (!ctxMenu.hidden && !ctxMenu.contains(e.target)) closeMenu();
+      if (editor && !editor.wrap.contains(e.target)) closeEditor(false);
+    }, true);
+
+    // ---------- 空白处拖动画布；节点拖拽仍用于调整层级 ----------
+    mindmapStage.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .ctx-menu")) return;
+      panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
+      mindmapStage.classList.add("panning");
+      try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+    mindmapStage.addEventListener("pointermove", e => {
+      if (!panDrag) return;
+      pan.x = panDrag.ox + (e.clientX - panDrag.sx);
+      pan.y = panDrag.oy + (e.clientY - panDrag.sy);
+      clampPan();
+      applyPan();
+    });
+    function endPan(e) {
+      if (!panDrag) return;
+      panDrag = null;
+      mindmapStage.classList.remove("panning");
+      if (e && e.pointerId != null) {
+        try { mindmapStage.releasePointerCapture(e.pointerId); } catch (err) {}
+      }
+    }
+    mindmapStage.addEventListener("pointerup", endPan);
+    mindmapStage.addEventListener("pointercancel", endPan);
+
+    // ---------- 滚轮缩放（以鼠标位置为中心） ----------
+    mindmapStage.addEventListener("wheel", e => {
+      e.preventDefault();
+      const stage = document.getElementById("mindmapStage");
+      if (!stage) return;
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale * factor));
+      if (next === scale) return;
+      const rect = stage.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // 缩放前鼠标指向的画布内容坐标（pan 在 scale 之前平移）
+      const cx = (mx - pan.x) / scale;
+      const cy = (my - pan.y) / scale;
+      scale = next;
+      // 调整 pan，使该内容点仍停留在鼠标下方（zoom-to-cursor）
+      pan.x = mx - cx * scale;
+      pan.y = my - cy * scale;
+      clampPan();
+      applyPan();
+    }, { passive: false });
+
+    // ---------- 拖拽调整任意节点层级 ----------
+    let dragId = null;
+
+    catTree.addEventListener("dragstart", e => {
+      if (editor) { e.preventDefault(); return; }
+      const node = e.target.closest(".mm-node[draggable='true']");
+      if (!node) return;
+      dragId = node.dataset.ref;
+      node.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", dragId);
+    });
+
+    catTree.addEventListener("dragend", () => {
+      dragId = null;
+      catTree.querySelectorAll(".dragging, .drag-over").forEach(el => el.classList.remove("dragging", "drag-over"));
+    });
+
+    catTree.addEventListener("dragover", e => {
+      if (!dragId) return;
+      const target = e.target.closest(".mm-node");
+      if (!target) return;
+      const targetId = target.dataset.ref || null;
+      if (targetId && (targetId === dragId || isDescendant(targetId, dragId))) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      catTree.querySelectorAll(".drag-over").forEach(el => { if (el !== target) el.classList.remove("drag-over"); });
+      target.classList.add("drag-over");
+    });
+
+    catTree.addEventListener("dragleave", e => {
+      const target = e.target.closest(".mm-node");
+      if (target && !target.contains(e.relatedTarget)) {
+        target.classList.remove("drag-over");
+      }
+    });
+
+    catTree.addEventListener("drop", e => {
+      if (!dragId) return;
+      const target = e.target.closest(".mm-node");
+      if (!target) return;
+      const targetId = target.dataset.ref || null;
+      if (targetId && (targetId === dragId || isDescendant(targetId, dragId))) return;
+      const dragged = nodeById(dragId);
+      if (!dragged) return;
+      e.preventDefault();
+      dragged.parentId = targetId;
+      save(); render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
