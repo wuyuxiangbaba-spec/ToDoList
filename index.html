@@ -784,28 +784,15 @@
       for (const r of rects) if (rlSegHitsRect(x1, y1, x2, y2, r)) return true;
       return false;
     }
-    // 接驳点：按两卡中心向量的「主导方向」接到朝向对方那条边的中点。
-    // |dy| >= |dx| 时用顶/底边水平中点（对方在上方接顶边、在下方接底边）；
-    // |dx| > |dy| 时用左/右缘竖直中点。精确落在该边中点，不接到角上。
-    function rlAttachPoint(rect, tx, ty) {
-      const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
-      const dx = tx - cx, dy = ty - cy;
-      if (Math.abs(dy) >= Math.abs(dx)) {
-        return dy < 0
-          ? { x: cx, y: rect.y }            // 对方主要在上方：顶边水平中点
-          : { x: cx, y: rect.y + rect.h };  // 对方主要在下方：底边中点
-      }
-      return dx < 0
-        ? { x: rect.x, y: cy }              // 对方主要在左：左缘竖直中点
-        : { x: rect.x + rect.w, y: cy };    // 对方主要在右：右缘竖直中点
+    // 接驳点：任务连线固定接到卡片「右侧边的竖直中点」，
+    // 不再按主导方向选顶/底/左边；无论对方在上、下、左、右还是斜向，一律右侧中点。
+    function rlAttachPoint(rect) {
+      return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
     }
-    // 端点卡片：封住内部，但在接驳边一侧留出出口，避免路径绕回穿卡
-    function rlEndpointBlock(rect, attach) {
+    // 端点卡片：封住内部，但在右侧留出出口（曲线先向右伸出再弯向对方，不会绕回穿卡）
+    function rlEndpointBlock(rect) {
       const E = RL_EXIT;
-      if (attach.x >= rect.x + rect.w - 1) return rlRect(rect.x, rect.y, Math.max(1, rect.w - E), rect.h);
-      if (attach.x <= rect.x + 1) return rlRect(rect.x + E, rect.y, Math.max(1, rect.w - E), rect.h);
-      if (attach.y <= rect.y + 1) return rlRect(rect.x, rect.y + E, rect.w, Math.max(1, rect.h - E));
-      return rlRect(rect.x, rect.y, rect.w, Math.max(1, rect.h - E));
+      return rlRect(rect.x, rect.y, Math.max(1, rect.w - E), rect.h);
     }
     function rlSampleCubic(p, c1, c2, q, n) {
       const pts = [];
@@ -818,13 +805,18 @@
       }
       return pts;
     }
-    // 与分支同款控制点的平滑三次贝塞尔（两点直连时保持有机观感）。
-    // 控制点沿两端连线的主方向伸出：从各自边中点先沿该边法向离开一小段再平滑绕行，
-    // 不再把水平方向按 dx 的 0.52/0.45 比例拉长。
+    // 右侧法向伸出长度：两卡相距越远伸出越长，限制在合理区间
+    function rlExitLen(p, q) {
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      return Math.max(26, Math.min(80, d * 0.32));
+    }
+    // 圆滑三次贝塞尔：两端控制点均沿「右缘外法向」（+x）水平伸出，
+    // 因此曲线在起点处切线严格向右、到达终点时也从右侧水平进入对方右侧中点，
+    // 两卡上下排列时自然形成右侧的平滑弓形 / C 形，而非折线。
     function rlTwoPointCurve(p, q) {
-      const mx = q.x - p.x, my = q.y - p.y;
-      const c1 = { x: p.x + mx * 0.45, y: p.y + my * 0.12 };
-      const c2 = { x: q.x - mx * 0.45, y: q.y - my * 0.12 };
+      const k = rlExitLen(p, q);
+      const c1 = { x: p.x + k, y: p.y };
+      const c2 = { x: q.x + k, y: q.y };
       const d = "M " + p.x.toFixed(1) + " " + p.y.toFixed(1) +
         " C " + c1.x.toFixed(1) + " " + c1.y.toFixed(1) + ", " +
         c2.x.toFixed(1) + " " + c2.y.toFixed(1) + ", " + q.x.toFixed(1) + " " + q.y.toFixed(1);
@@ -935,24 +927,32 @@
       return { d: d.join(" "), pts: sample };
     }
     // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用），
-    // hardRects 为全部卡片（两端卡片只封「除接驳边以外的内部」），softRects 为
+    // 起终点固定为各自右侧边竖直中点，先沿右侧外法向伸出一小段再平滑弯向对方。
+    // hardRects 为全部卡片（两端卡片只封「留出右侧出口的内部」），softRects 为
     // 分支走廊/已有连线等软障碍（先带着绕，绕不开再降级）。返回 { d, pts }。
     function rlPlanLinkPath(aRect, bRect, hardRects, softRects, bounds) {
-      const ca = rlCenter(aRect), cb = rlCenter(bRect);
-      const pa = rlAttachPoint(aRect, cb.x, cb.y);
-      const pb = rlAttachPoint(bRect, ca.x, ca.y);
+      const pa = rlAttachPoint(aRect);
+      const pb = rlAttachPoint(bRect);
       const hard = hardRects
         .filter(r => r !== aRect && r !== bRect)
         .map(r => rlInflate(r, RL_MARGIN));
-      hard.push(rlEndpointBlock(aRect, pa));
-      hard.push(rlEndpointBlock(bRect, pb));
+      // 端点卡片封内部（右侧留出口），再外扩一点，避免平滑后的曲线贴边切进卡片
+      hard.push(rlInflate(rlEndpointBlock(aRect), 6));
+      hard.push(rlInflate(rlEndpointBlock(bRect), 6));
       const soft = (softRects || []).map(r => rlInflate(r, 6));
+      // 右侧出口路径点：从右侧中点水平向右伸出，A* 在两个出口点之间绕障；
+      // 额外插入 45% 处的中间引出点，让平滑后两端保持明确的水平离开/进入切线
+      const ex = Math.max(36, Math.min(90, rlExitLen(pa, pb)));
+      const ea = { x: pa.x + ex, y: pa.y };
+      const eb = { x: pb.x + ex, y: pb.y };
+      const ma = { x: pa.x + ex * 0.45, y: pa.y };
+      const mb = { x: pb.x + ex * 0.45, y: pb.y };
       const trySets = soft.length ? [hard.concat(soft), hard] : [hard];
       for (const obs of trySets) {
         const direct = rlTwoPointCurve(pa, pb);
         if (!direct.pts.some(p => obs.some(o => rlPointInRect(p.x, p.y, o)))) return direct;
-        const poly = rlAStar(pa, pb, obs, bounds);
-        if (poly) return rlSmoothPath(poly);
+        const poly = rlAStar(ea, eb, obs, bounds);
+        if (poly) return rlSmoothPath([pa, ma].concat(poly, [mb, pb]));
       }
       return rlTwoPointCurve(pa, pb); // 兜底
     }
@@ -1488,11 +1488,12 @@
     }, true);
 
     // ---------- 空白处拖动画布；节点拖拽仍用于调整层级 ----------
+    // 连线模式下拖动/平移画布不退出连线模式：pointerdown 只开始平移，
+    // 是否当作「点击空白取消连线」推迟到 pointerup，按位移阈值判定。
     mindmapStage.addEventListener("pointerdown", e => {
       if (e.button !== 0) return;
       if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .ctx-menu")) return;
-      if (linkMode) { exitLinkMode("已取消连线操作"); } // 点击空白取消连线模式（平移仍可用）
-      panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
+      panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, moved: false };
       mindmapStage.classList.add("panning");
       try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
       e.preventDefault();
@@ -1501,16 +1502,19 @@
       if (!panDrag) return;
       pan.x = panDrag.ox + (e.clientX - panDrag.sx);
       pan.y = panDrag.oy + (e.clientY - panDrag.sy);
+      if (Math.hypot(e.clientX - panDrag.sx, e.clientY - panDrag.sy) > 5) panDrag.moved = true;
       clampPan();
       applyPan();
     });
     function endPan(e) {
       if (!panDrag) return;
+      const wasBlankClick = !panDrag.moved; // 几乎没移动的单击才算点击空白；平移不取消连线
       panDrag = null;
       mindmapStage.classList.remove("panning");
       if (e && e.pointerId != null) {
         try { mindmapStage.releasePointerCapture(e.pointerId); } catch (err) {}
       }
+      if (wasBlankClick && linkMode) exitLinkMode("已取消连线操作");
     }
     mindmapStage.addEventListener("pointerup", endPan);
     mindmapStage.addEventListener("pointercancel", endPan);
