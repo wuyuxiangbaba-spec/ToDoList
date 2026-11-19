@@ -90,6 +90,11 @@
       padding: 0 4px; font-size: 12px; border-radius: 6px; flex-shrink: 0;
     }
     .catalog-item-del:hover { color: var(--danger); background: var(--danger-soft); }
+    .catalog-item-rename {
+      border: none; background: transparent; color: var(--muted);
+      padding: 0 4px; font-size: 12px; border-radius: 6px; flex-shrink: 0;
+    }
+    .catalog-item-rename:hover { color: var(--accent); background: var(--accent-soft); }
     .catalog-item .catalog-rename-input {
       flex: 1; min-width: 0; font-family: inherit; font-size: 13.5px;
       border: 1.5px solid var(--accent); border-radius: 8px;
@@ -109,21 +114,33 @@
     .mm-node.cat-drop-over > .node-btn {
       outline: 2px solid var(--accent); outline-offset: 3px;
     }
-    /* 任务块旁的目录跳转 logo：紧挨右侧、垂直居中、不挡字 */
+    /* 任务块旁的目录跳转标识：加大正圆线框，可并排多个、不互相重叠、不挡字。
+       线框语言与任务块一致：未全完成 = 红虚线圆 + --danger-soft 浅底；
+       整棵树全部完成 = 绿实线圆 + --accent-soft 浅底（TODO_HEX / DONE_HEX）。 */
     .node-catalog-logos {
       position: absolute;
-      left: calc(100% + 2px); top: 50%;
+      left: calc(100% + 5px); top: 50%;
       transform: translateY(-50%);
-      display: inline-flex; align-items: center; gap: 3px;
+      display: inline-flex; align-items: center; gap: 4px;
       z-index: 5; pointer-events: auto;
     }
     .catalog-logo {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 20px; height: 20px; padding: 0; border-radius: 50%;
-      border: 1px solid #bfe0cf; background: var(--paper); color: var(--accent);
+      width: 30px; height: 30px; padding: 0; border-radius: 50%;
+      font-size: 9.5px; line-height: 1; letter-spacing: 0;
+      background: var(--paper);
       box-shadow: 0 2px 6px rgba(30, 36, 48, 0.12);
     }
-    .catalog-logo:hover { background: var(--accent-soft); transform: translateY(-1px); }
+    .catalog-logo.todo {
+      border: 2px dashed #b42318; /* TODO_HEX：与未完成任务块同色 */
+      background: var(--danger-soft); color: #b42318;
+    }
+    .catalog-logo.done {
+      border: 2px solid #1f6b4a; /* DONE_HEX：与已完成任务块同色 */
+      background: var(--accent-soft); color: #1f6b4a;
+    }
+    .catalog-logo:hover { transform: translateY(-1px); }
+    .catalog-logo .catalog-logo-check { font-size: 13px; }
 
     /* ===== 全屏树状图 ===== */
     .tree-card {
@@ -354,6 +371,10 @@
     <button type="button" class="danger" data-act="delete-link">删除该连线</button>
   </div>
 
+  <div id="catCtxMenu" class="ctx-menu" hidden>
+    <button type="button" data-act="rename-catalog">改名</button>
+  </div>
+
   <div id="linkHint" class="link-hint" hidden></div>
 
   <script>
@@ -394,14 +415,6 @@
 
     const DONE_HEX = "#1f6b4a";
     const TODO_HEX = "#b42318";
-
-    // 目录插入 logo 的内联 SVG（小书本图标，与页面墨绿风格一致，不依赖外部图片）
-    const CATALOG_LOGO_SVG =
-      '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">' +
-      '<rect x="2.6" y="4" width="14.8" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
-      '<path d="M10 4v12" stroke="currentColor" stroke-width="1.4"/>' +
-      '<path d="M5.8 7.6h2.1M5.8 10.2h2.1M12.1 7.6h2.1M12.1 10.2h2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
-      '</svg>';
 
     function formatShanghai(date) {
       const parts = new Intl.DateTimeFormat("en-GB", {
@@ -697,6 +710,31 @@
         list.push({ catalog, node, target });
       }
       return list;
+    }
+
+    // 目录完成统计（纯函数）：统计目标目录 nodes 里全部节点的 done 字段。
+    // 整棵树都完成才算完成（allDone）；空树（0 个节点）按未完成处理，不抛错。
+    function catalogDoneStats(cat) {
+      const nodes = (cat && Array.isArray(cat.nodes)) ? cat.nodes : [];
+      const total = nodes.length;
+      const done = nodes.reduce((acc, n) => acc + (n && n.done ? 1 : 0), 0);
+      return { total: total, done: done, allDone: total > 0 && done === total };
+    }
+
+    // 目录改名（纯函数，直接作用于目录对象）：trim 后为空或不变化则不改（返回 false）。
+    // 改名成功时：若根节点（parentId 为空）名称仍等于旧目录名（新建目录时根节点
+    // 默认与目录同名），则同步改成新目录名。返回是否发生了修改。
+    function applyCatalogRename(cat, rawName) {
+      if (!cat) return false;
+      const value = String(rawName == null ? "" : rawName).trim().slice(0, 40);
+      if (!value || value === cat.name) return false;
+      const oldName = cat.name;
+      cat.name = value;
+      const nodes = Array.isArray(cat.nodes) ? cat.nodes : [];
+      for (const n of nodes) {
+        if (n && (n.parentId || null) === null && n.name === oldName) n.name = value;
+      }
+      return true;
     }
 
     // 单个目录：用原有 normalizeState 规范化它的树（节点/连线/联动标记）
@@ -1218,7 +1256,9 @@
           </div>
         `).join("");
 
-      // 目录插入 logo：挂在任务块右侧（CSS 绝对定位紧挨、垂直居中），
+      // 目录插入标识：挂在任务块右侧（CSS 绝对定位紧挨、垂直居中），
+      // 加大正圆线框并带目标目录整棵树的完成状态（每次 render 都按最新 done 重算）：
+      // 未全完成 = 红虚线圆（TODO_HEX）+ 已完成比例；全部完成 = 绿实线圆（DONE_HEX）+ 对勾。
       // 不参与布局、不挡文字，也不影响节点点击/右键/拖拽。
       for (const el of box.querySelectorAll('.mm-node[data-ntype="node"]')) {
         const ref = el.dataset.ref;
@@ -1231,13 +1271,22 @@
         for (const ins of inserts) {
           const target = state.catalogs.find(c => c.id === ins.target);
           if (!target) continue;
+          const stats = catalogDoneStats(target);
           const b = document.createElement("button");
           b.type = "button";
-          b.className = "catalog-logo";
+          b.className = "catalog-logo " + (stats.allDone ? "done" : "todo");
+          b.style.borderColor = stats.allDone ? DONE_HEX : TODO_HEX;
+          b.style.color = stats.allDone ? DONE_HEX : TODO_HEX;
           b.dataset.catalogTarget = ins.target;
-          b.title = "跳到目录：" + target.name;
-          b.setAttribute("aria-label", "跳到目录：" + target.name);
-          b.innerHTML = CATALOG_LOGO_SVG;
+          const label = "跳到目录：" + target.name +
+            (stats.allDone
+              ? "（全部完成 " + stats.done + "/" + stats.total + "）"
+              : "（已完成 " + stats.done + "/" + stats.total + "）");
+          b.title = label;
+          b.setAttribute("aria-label", label);
+          b.innerHTML = stats.allDone
+            ? '<span class="catalog-logo-check" aria-hidden="true">✓</span>'
+            : '<span class="catalog-logo-count" aria-hidden="true">' + stats.done + "/" + stats.total + "</span>";
           logoWrap.appendChild(b);
         }
         if (logoWrap.children.length) el.appendChild(logoWrap);
@@ -1473,6 +1522,7 @@
       if (e.key === "Escape") {
         if (!ctxMenu.hidden) { e.preventDefault(); closeMenu(); }
         if (!linkCtxMenu.hidden) { e.preventDefault(); closeLinkMenu(); }
+        if (!catCtxMenu.hidden) { e.preventDefault(); closeCatMenu(); }
       }
     }, true);
 
@@ -1725,6 +1775,7 @@
     document.addEventListener("pointerdown", e => {
       if (!ctxMenu.hidden && !ctxMenu.contains(e.target)) closeMenu();
       if (!linkCtxMenu.hidden && !linkCtxMenu.contains(e.target)) closeLinkMenu();
+      if (!catCtxMenu.hidden && !catCtxMenu.contains(e.target)) closeCatMenu();
       if (editor && !editor.wrap.contains(e.target)) closeEditor(false);
     }, true);
 
@@ -1867,18 +1918,30 @@
     const CATALOG_DRAG_TYPE = "application/x-catalog";
     let catalogDragId = null;
 
+    // 当前打开的目录改名提交函数；null 表示没有正在编辑的改名输入框
+    let catalogRenameClose = null;
+
     function renderCatalogList() {
+      // 改名输入框打开期间不整表重绘，避免把编辑中的 DOM 清掉
+      if (catalogRenameClose && catalogList.querySelector(".catalog-rename-input")) return;
       catalogList.innerHTML = "";
       for (const cat of state.catalogs) {
         const li = document.createElement("li");
         li.className = "catalog-item" + (cat.id === state.currentCatalogId ? " active" : "");
         li.dataset.catId = cat.id;
         li.draggable = true;
-        li.title = "点击切换目录；双击改名；可拖到右侧分支上插入跳转 logo";
+        li.title = "点击切换目录；点 ✎ 或右键选“改名”；可拖到右侧分支上插入跳转标识";
         const name = document.createElement("span");
         name.className = "catalog-item-name";
         name.textContent = cat.name;
         li.appendChild(name);
+        const ren = document.createElement("button");
+        ren.type = "button";
+        ren.className = "catalog-item-rename";
+        ren.title = "改名";
+        ren.setAttribute("aria-label", "改名目录：" + cat.name);
+        ren.textContent = "✎";
+        li.appendChild(ren);
         const del = document.createElement("button");
         del.type = "button";
         del.className = "catalog-item-del";
@@ -1897,7 +1960,9 @@
     function switchCatalog(id) {
       const cat = state.catalogs.find(c => c.id === id);
       if (!cat) return;
-      if (id === state.currentCatalogId) { renderCatalogList(); return; }
+      // 点击当前目录：直接返回，不重绘列表（否则会毁掉正在编辑的改名输入框，
+      // 双击改名的第一次 click 也会把目标节点从 DOM 里抹掉）
+      if (id === state.currentCatalogId) return;
       closeEditor(false);
       closeMenu();
       closeLinkMenu();
@@ -1966,6 +2031,8 @@
     function startCatalogRename(li, cat) {
       const nameEl = li.querySelector(".catalog-item-name");
       if (!nameEl || li.querySelector(".catalog-rename-input")) return;
+      // 先收起别处还开着的改名框
+      if (catalogRenameClose) catalogRenameClose(false);
       const input = document.createElement("input");
       input.type = "text";
       input.className = "catalog-rename-input";
@@ -1980,20 +2047,23 @@
       const commit = ok => {
         if (doneRename) return;
         doneRename = true;
-        const value = input.value.trim().slice(0, 40);
+        catalogRenameClose = null;
         input.remove();
         nameEl.style.display = "";
-        if (ok && value && value !== cat.name) {
-          cat.name = value;
+        // applyCatalogRename：空名（trim 后为空）不保存、取消本次改名、保持原名；
+        // 非空则更新目录名，且根节点名等于旧目录名时同步更新，最后 save + render
+        // （render 会同步侧栏显示、树上插入标识的 title / aria-label 与根节点名）
+        if (ok && applyCatalogRename(cat, input.value)) {
           save();
-          render(); // 同步侧栏高亮与 logo 提示文字
+          render();
         }
       };
+      catalogRenameClose = commit;
       input.addEventListener("keydown", ev => {
         if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
         else if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
       });
-      input.addEventListener("blur", () => commit(true));
+      input.addEventListener("blur", () => commit(true)); // 失焦时若名称非空则保存
       input.addEventListener("pointerdown", ev => ev.stopPropagation());
       input.addEventListener("mousedown", ev => ev.stopPropagation());
       input.addEventListener("click", ev => ev.stopPropagation());
@@ -2022,7 +2092,7 @@
       state.catalogInserts.push({ catalog: state.currentCatalogId, node: nodeId, target: catId });
       save();
       renderTree();
-      showLinkHint(`已把「${target.name}」插入到该分支，点旁边的小 logo 可跳转`, false);
+      showLinkHint(`已把「${target.name}」插入到该分支，点旁边的圆形目录标识可跳转`, false);
     }
 
     catalogCollapseBtn.addEventListener("click", () => {
@@ -2041,12 +2111,58 @@
       const li = e.target.closest(".catalog-item");
       if (!li) return;
       if (e.target.closest(".catalog-rename-input")) return;
+      if (e.target.closest(".catalog-item-rename")) {
+        const cat = state.catalogs.find(c => c.id === li.dataset.catId);
+        if (cat) startCatalogRename(li, cat);
+        return;
+      }
       if (e.target.closest(".catalog-item-del")) {
         deleteCatalog(li.dataset.catId);
         return;
       }
       switchCatalog(li.dataset.catId);
     });
+
+    // ---------- 目录右键菜单（改名） ----------
+    const catCtxMenu = document.getElementById("catCtxMenu");
+    let catCtxTargetId = null;
+
+    function closeCatMenu() {
+      catCtxMenu.hidden = true;
+      catCtxTargetId = null;
+    }
+    catalogList.addEventListener("contextmenu", e => {
+      if (e.target.closest(".catalog-rename-input")) return;
+      const li = e.target.closest(".catalog-item");
+      if (!li) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+      closeLinkMenu();
+      catCtxTargetId = li.dataset.catId;
+      catCtxMenu.hidden = false;
+      catCtxMenu.style.left = e.clientX + "px";
+      catCtxMenu.style.top = e.clientY + "px";
+      requestAnimationFrame(() => {
+        const r = catCtxMenu.getBoundingClientRect();
+        if (r.right > innerWidth - 8) catCtxMenu.style.left = Math.max(8, innerWidth - r.width - 8) + "px";
+        if (r.bottom > innerHeight - 8) catCtxMenu.style.top = Math.max(8, innerHeight - r.height - 8) + "px";
+      });
+    });
+    catCtxMenu.addEventListener("click", e => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn || !catCtxTargetId) return;
+      const act = btn.dataset.act;
+      const id = catCtxTargetId;
+      closeCatMenu();
+      if (act === "rename-catalog") {
+        const cat = state.catalogs.find(c => c.id === id);
+        const li = catalogList.querySelector('[data-cat-id="' + id + '"]');
+        if (cat && li) startCatalogRename(li, cat);
+      }
+    });
+    catCtxMenu.addEventListener("pointerdown", e => e.stopPropagation());
+    catCtxMenu.addEventListener("contextmenu", e => e.preventDefault());
 
     catalogList.addEventListener("dblclick", e => {
       const nameEl = e.target.closest(".catalog-item-name");
