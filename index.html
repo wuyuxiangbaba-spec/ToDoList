@@ -35,7 +35,7 @@
       height: 100vh;
       height: 100dvh;
       display: flex;
-      flex-direction: column;
+      flex-direction: row; /* 目录侧栏在左、树状图在右，横向铺满 */
     }
     button {
       cursor: pointer; border: 1px solid var(--line);
@@ -44,6 +44,86 @@
     }
     button:hover { background: #f7f3eb; }
     button.ghost { background: transparent; }
+
+    /* ===== 左侧目录侧栏 ===== */
+    .catalog-sidebar {
+      width: 236px;
+      flex: 0 0 auto;
+      min-height: 0;
+      background: var(--paper);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s ease;
+    }
+    .catalog-sidebar.collapsed { width: 0; border-right-color: transparent; }
+    .catalog-side-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 14px 8px; white-space: nowrap;
+    }
+    .catalog-side-title { font-size: 15px; letter-spacing: 3px; color: var(--ink); }
+    .catalog-collapse-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
+    .catalog-list {
+      flex: 1; min-height: 0; margin: 0; padding: 4px 8px;
+      list-style: none; overflow-y: auto; overflow-x: hidden;
+    }
+    .catalog-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 10px; margin: 2px 0;
+      border: 1px solid transparent; border-radius: 10px;
+      cursor: pointer; font-size: 13.5px;
+      color: var(--ink); background: transparent;
+      white-space: nowrap;
+    }
+    .catalog-item:hover { background: #f7f3eb; }
+    .catalog-item.active {
+      background: var(--accent-soft); border-color: #bfe0cf; color: var(--accent);
+    }
+    .catalog-item.dragging-cat { opacity: 0.5; }
+    .catalog-item-name {
+      flex: 1; min-width: 0; overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .catalog-item-del {
+      border: none; background: transparent; color: var(--muted);
+      padding: 0 4px; font-size: 12px; border-radius: 6px; flex-shrink: 0;
+    }
+    .catalog-item-del:hover { color: var(--danger); background: var(--danger-soft); }
+    .catalog-item .catalog-rename-input {
+      flex: 1; min-width: 0; font-family: inherit; font-size: 13.5px;
+      border: 1.5px solid var(--accent); border-radius: 8px;
+      padding: 3px 6px; outline: none; background: #fff; color: var(--ink);
+    }
+    .catalog-side-foot { padding: 10px 12px 14px; white-space: nowrap; }
+    .catalog-add-btn {
+      width: 100%; padding: 8px 10px;
+      color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft);
+    }
+    .catalog-add-btn:hover { background: #dceee4; }
+    .catalog-rail {
+      position: fixed; left: 10px; top: 10px; z-index: 900;
+      padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
+    }
+    /* 目录拖到分支上的落点提示（区别于节点改挂载的虚线框） */
+    .mm-node.cat-drop-over > .node-btn {
+      outline: 2px solid var(--accent); outline-offset: 3px;
+    }
+    /* 任务块旁的目录跳转 logo：紧挨右侧、垂直居中、不挡字 */
+    .node-catalog-logos {
+      position: absolute;
+      left: calc(100% + 2px); top: 50%;
+      transform: translateY(-50%);
+      display: inline-flex; align-items: center; gap: 3px;
+      z-index: 5; pointer-events: auto;
+    }
+    .catalog-logo {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; padding: 0; border-radius: 50%;
+      border: 1px solid #bfe0cf; background: var(--paper); color: var(--accent);
+      box-shadow: 0 2px 6px rgba(30, 36, 48, 0.12);
+    }
+    .catalog-logo:hover { background: var(--accent-soft); transform: translateY(-1px); }
 
     /* ===== 全屏树状图 ===== */
     .tree-card {
@@ -243,12 +323,24 @@
 </head>
 <body>
   <div class="wrap">
+    <aside class="catalog-sidebar" id="catalogSidebar" aria-label="目录侧栏">
+      <div class="catalog-side-head">
+        <span class="catalog-side-title">目录</span>
+        <button type="button" class="ghost catalog-collapse-btn" id="catalogCollapseBtn" title="收起目录侧栏">«</button>
+      </div>
+      <ul class="catalog-list" id="catalogList"></ul>
+      <div class="catalog-side-foot">
+        <button type="button" class="catalog-add-btn" id="catalogAddBtn">＋ 新建目录</button>
+      </div>
+    </aside>
     <section class="tree-card">
       <div class="mindmap-stage" id="mindmapStage">
         <div class="mindmap-canvas" id="catTree"></div>
       </div>
     </section>
   </div>
+
+  <button type="button" id="catalogRail" class="catalog-rail ghost" title="展开目录侧栏" hidden>» 目录</button>
 
   <div id="ctxMenu" class="ctx-menu" hidden>
     <button type="button" data-act="add">+ 分支</button>
@@ -265,6 +357,10 @@
   <div id="linkHint" class="link-hint" hidden></div>
 
   <script>
+    /* ==== CATALOG-PURE-START ==== */
+    // 本段为纯函数区（无 DOM / localStorage 依赖）：
+    // 含默认树、节点规范化、旧数据迁移（resolveState）与多目录解析
+    // （resolveCatalogState）。catalog-selfcheck.mjs 会抽取本段做迁移自检。
     const STORAGE_KEY = "signin-tracker-v1";
     const DEFAULT_NODES = [
       { id: "nmwiyegtzm0v4", name: "昆仑数模", parentId: null, done: false, completedAt: "" },
@@ -298,6 +394,14 @@
 
     const DONE_HEX = "#1f6b4a";
     const TODO_HEX = "#b42318";
+
+    // 目录插入 logo 的内联 SVG（小书本图标，与页面墨绿风格一致，不依赖外部图片）
+    const CATALOG_LOGO_SVG =
+      '<svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">' +
+      '<rect x="2.6" y="4" width="14.8" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
+      '<path d="M10 4v12" stroke="currentColor" stroke-width="1.4"/>' +
+      '<path d="M5.8 7.6h2.1M5.8 10.2h2.1M12.1 7.6h2.1M12.1 10.2h2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
+      '</svg>';
 
     function formatShanghai(date) {
       const parts = new Intl.DateTimeFormat("en-GB", {
@@ -565,14 +669,113 @@
       return st;
     }
 
+    // ---------- 多目录（catalogs）纯函数 ----------
+    // 注意：目录列表字段名用 catalogs / currentCatalogId，
+    // 不能用 categories（那是更老的分类格式迁移字段）。
+    function genCatalogId() {
+      return "cat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    // 目录插入 logo 记录：{ catalog(所在目录), node(节点 id), target(目标目录) }
+    // 规范化：去掉指向不存在目录/节点的记录、自指向、重复项。
+    function normalizeCatalogInserts(rawInserts, catalogs) {
+      const list = [];
+      if (!Array.isArray(rawInserts)) return list;
+      const catIds = new Set(catalogs.map(c => c.id));
+      const nodeIdsByCat = new Map(catalogs.map(c => [c.id, new Set(c.nodes.map(n => n.id))]));
+      const seen = new Set();
+      for (const ins of rawInserts) {
+        if (!ins || typeof ins !== "object") continue;
+        const catalog = String(ins.catalog || "");
+        const node = String(ins.node || "");
+        const target = String(ins.target || "");
+        if (!catIds.has(catalog) || !catIds.has(target) || catalog === target) continue;
+        if (!(nodeIdsByCat.get(catalog) || new Set()).has(node)) continue;
+        const key = catalog + "\u0000" + node + "\u0000" + target;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push({ catalog, node, target });
+      }
+      return list;
+    }
+
+    // 单个目录：用原有 normalizeState 规范化它的树（节点/连线/联动标记）
+    function normalizeCatalog(rawCatalog) {
+      const src = rawCatalog && typeof rawCatalog === "object" ? rawCatalog : {};
+      const tree = normalizeState({
+        nodes: Array.isArray(src.nodes) ? src.nodes : [],
+        links: src.links,
+        linkDone: src.linkDone,
+        nodeChecks: src.nodeChecks
+      });
+      return {
+        id: String(src.id || genCatalogId()),
+        name: String(src.name || "未命名目录").slice(0, 40),
+        nodes: tree.nodes,
+        links: tree.links,
+        linkDone: tree.linkDone
+      };
+    }
+
+    // 纯函数：给定 localStorage 原始字符串，解析成多目录状态（便于测试注入）。
+    // - 新格式（含非空 catalogs）：原样加载各目录，不打回默认树；
+    // - 旧单树格式（nodes/links/linkDone，无 catalogs）：先走原有 resolveState
+    //   （含旧示例树丢弃逻辑），整包迁入第一个目录「默认目录」，并成为当前目录；
+    // - 无数据：用户默认树包成第一个目录。
+    function resolveCatalogState(raw) {
+      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [] };
+      if (raw) {
+        try {
+          const data = JSON.parse(raw);
+          if (data && Array.isArray(data.catalogs) && data.catalogs.length) {
+            const catalogs = data.catalogs.map(normalizeCatalog).filter(Boolean);
+            if (catalogs.length) {
+              const currentCatalogId = catalogs.some(c => c.id === String(data.currentCatalogId))
+                ? String(data.currentCatalogId)
+                : catalogs[0].id;
+              return Object.assign(base, {
+                catalogs: catalogs,
+                currentCatalogId: currentCatalogId,
+                sidebarOpen: data.sidebarOpen !== false,
+                catalogInserts: normalizeCatalogInserts(data.catalogInserts, catalogs)
+              });
+            }
+          }
+        } catch (e) {}
+      }
+      const first = resolveState(raw); // 旧单树迁移 / 旧示例树丢弃 → 用户默认树
+      const cat = {
+        id: genCatalogId(),
+        name: "默认目录",
+        nodes: first.nodes,
+        links: first.links,
+        linkDone: first.linkDone
+      };
+      return Object.assign(base, { catalogs: [cat], currentCatalogId: cat.id });
+    }
+    /* ==== CATALOG-PURE-END ==== */
+
     // localStorage 做成可注入的读取器，默认直连浏览器
     const readStorage = () => {
       try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
     };
-    function load() { return resolveState(readStorage()); }
+    function load() { return resolveCatalogState(readStorage()); }
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
     let state = load();
+
+    // 当前目录：现有代码继续直接读写 state.nodes / links / linkDone，
+    // 通过 getter/setter 实际落到当前目录上（getters 不可枚举，不会写入 JSON）。
+    function currentCatalog() {
+      return state.catalogs.find(c => c.id === state.currentCatalogId) || state.catalogs[0];
+    }
+    Object.defineProperties(state, {
+      nodes: { configurable: true, get: () => currentCatalog().nodes, set: v => { currentCatalog().nodes = v; } },
+      links: { configurable: true, get: () => currentCatalog().links, set: v => { currentCatalog().links = v; } },
+      linkDone: { configurable: true, get: () => currentCatalog().linkDone, set: v => { currentCatalog().linkDone = v; } }
+    });
+    state.currentCatalogId = currentCatalog().id;
+
     let pan = { x: 0, y: 0 };
     let scale = 1;
     let panDrag = null;
@@ -1015,6 +1218,31 @@
           </div>
         `).join("");
 
+      // 目录插入 logo：挂在任务块右侧（CSS 绝对定位紧挨、垂直居中），
+      // 不参与布局、不挡文字，也不影响节点点击/右键/拖拽。
+      for (const el of box.querySelectorAll('.mm-node[data-ntype="node"]')) {
+        const ref = el.dataset.ref;
+        const inserts = state.catalogInserts.filter(
+          ins => ins.catalog === state.currentCatalogId && ins.node === ref
+        );
+        if (!inserts.length) continue;
+        const logoWrap = document.createElement("span");
+        logoWrap.className = "node-catalog-logos";
+        for (const ins of inserts) {
+          const target = state.catalogs.find(c => c.id === ins.target);
+          if (!target) continue;
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "catalog-logo";
+          b.dataset.catalogTarget = ins.target;
+          b.title = "跳到目录：" + target.name;
+          b.setAttribute("aria-label", "跳到目录：" + target.name);
+          b.innerHTML = CATALOG_LOGO_SVG;
+          logoWrap.appendChild(b);
+        }
+        if (logoWrap.children.length) el.appendChild(logoWrap);
+      }
+
       applyPan();
 
       requestAnimationFrame(() => {
@@ -1092,7 +1320,10 @@
       });
     }
 
-    function render() { renderTree(); }
+    function render() {
+      renderCatalogList();
+      renderTree();
+    }
 
     // ---------- 树点击交互 ----------
     const catTree = document.getElementById("catTree");
@@ -1396,11 +1627,21 @@
       // 删除该节点涉及的所有连线与联动完成标记（子节点自己的连线保持不变）
       state.links = state.links.filter(l => l.a !== node.id && l.b !== node.id);
       delete state.linkDone[node.id];
+      // 该节点上挂的目录插入 logo 一并清除
+      state.catalogInserts = state.catalogInserts.filter(
+        ins => !(ins.catalog === state.currentCatalogId && ins.node === node.id)
+      );
       save(); render();
     }
 
     catTree.addEventListener("click", e => {
       if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add")) return;
+      // 目录 logo：单击跳转到对应目录的树（不触发打卡）
+      const logoBtn = e.target.closest(".catalog-logo");
+      if (logoBtn && logoBtn.dataset.catalogTarget) {
+        switchCatalog(logoBtn.dataset.catalogTarget);
+        return;
+      }
       // 连线模式下：点击节点只用于完成/断开连线，不触发打卡切换
       if (linkMode) {
         const nodeEl = e.target.closest(".mm-node");
@@ -1560,6 +1801,20 @@
     });
 
     catTree.addEventListener("dragover", e => {
+      // 目录拖拽插入：catalogDragId 只在侧栏目录 dragstart 时赋值，
+      // 与节点改挂载（dragId）互不干扰；用独立 dataTransfer 类型区分。
+      if (!dragId && catalogDragId) {
+        if (catalogDragId === state.currentCatalogId) return; // 不插到自己树上
+        const catTarget = e.target.closest('.mm-node[data-ntype="node"]');
+        if (!catTarget) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "link";
+        catTree.querySelectorAll(".cat-drop-over").forEach(el => {
+          if (el !== catTarget) el.classList.remove("cat-drop-over");
+        });
+        catTarget.classList.add("cat-drop-over");
+        return;
+      }
       if (!dragId) return;
       const target = e.target.closest(".mm-node");
       if (!target) return;
@@ -1575,10 +1830,20 @@
       const target = e.target.closest(".mm-node");
       if (target && !target.contains(e.relatedTarget)) {
         target.classList.remove("drag-over");
+        target.classList.remove("cat-drop-over");
       }
     });
 
     catTree.addEventListener("drop", e => {
+      // 目录拖拽插入分支（先于节点改挂载处理；二者不会同时发生）
+      if (!dragId && catalogDragId) {
+        const catTarget = e.target.closest('.mm-node[data-ntype="node"]');
+        const nodeId = catTarget ? (catTarget.dataset.ref || "") : "";
+        const dragCat = catalogDragId;
+        clearCatDropMarks();
+        if (nodeId) insertCatalogOnNode(dragCat, nodeId);
+        return;
+      }
       if (!dragId) return;
       const target = e.target.closest(".mm-node");
       if (!target) return;
@@ -1591,6 +1856,223 @@
       save(); render();
     });
 
+    // ---------- 左侧目录侧栏 ----------
+    const catalogSidebar = document.getElementById("catalogSidebar");
+    const catalogRailBtn = document.getElementById("catalogRail");
+    const catalogCollapseBtn = document.getElementById("catalogCollapseBtn");
+    const catalogAddBtn = document.getElementById("catalogAddBtn");
+    const catalogList = document.getElementById("catalogList");
+
+    // 目录拖拽专用 dataTransfer 类型：绝不与节点改挂载的 "text/plain" 混用
+    const CATALOG_DRAG_TYPE = "application/x-catalog";
+    let catalogDragId = null;
+
+    function renderCatalogList() {
+      catalogList.innerHTML = "";
+      for (const cat of state.catalogs) {
+        const li = document.createElement("li");
+        li.className = "catalog-item" + (cat.id === state.currentCatalogId ? " active" : "");
+        li.dataset.catId = cat.id;
+        li.draggable = true;
+        li.title = "点击切换目录；双击改名；可拖到右侧分支上插入跳转 logo";
+        const name = document.createElement("span");
+        name.className = "catalog-item-name";
+        name.textContent = cat.name;
+        li.appendChild(name);
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "catalog-item-del";
+        del.title = "删除该目录";
+        del.textContent = "✕";
+        li.appendChild(del);
+        catalogList.appendChild(li);
+      }
+    }
+
+    function applySidebarOpen() {
+      catalogSidebar.classList.toggle("collapsed", !state.sidebarOpen);
+      catalogRailBtn.hidden = !!state.sidebarOpen;
+    }
+
+    function switchCatalog(id) {
+      const cat = state.catalogs.find(c => c.id === id);
+      if (!cat) return;
+      if (id === state.currentCatalogId) { renderCatalogList(); return; }
+      closeEditor(false);
+      closeMenu();
+      closeLinkMenu();
+      if (linkMode) exitLinkMode();
+      state.currentCatalogId = id;
+      // 平移/缩放按目录独立：切换时重置，不串目录数据
+      pan = { x: 0, y: 0 };
+      scale = 1;
+      save();
+      render();
+    }
+
+    function createCatalog() {
+      let name = "新目录";
+      let i = 2;
+      const names = new Set(state.catalogs.map(c => c.name));
+      while (names.has(name)) name = "新目录 " + (i++);
+      // 新目录拥有独立的树：只有一棵可编辑的根节点（名称默认同目录名），
+      // 不复制 DEFAULT_NODES 默认任务树。
+      const cat = {
+        id: genCatalogId(),
+        name: name,
+        nodes: [{
+          id: "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          name: name,
+          parentId: null,
+          done: false,
+          completedAt: ""
+        }],
+        links: [],
+        linkDone: {}
+      };
+      state.catalogs.push(cat);
+      state.currentCatalogId = cat.id;
+      pan = { x: 0, y: 0 };
+      scale = 1;
+      save();
+      render();
+      // 顺手打开侧栏内联改名，方便立刻改目录名
+      const li = catalogList.querySelector(`[data-cat-id="${cat.id}"]`);
+      if (li) startCatalogRename(li, cat);
+    }
+
+    function deleteCatalog(id) {
+      if (state.catalogs.length <= 1) {
+        alert("至少要保留一个目录，不能删除。");
+        return;
+      }
+      const cat = state.catalogs.find(c => c.id === id);
+      if (!cat) return;
+      if (!confirm(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`)) return;
+      state.catalogs = state.catalogs.filter(c => c.id !== id);
+      // 清掉所有指向它的插入 logo（无论作为所在目录还是目标目录）
+      state.catalogInserts = state.catalogInserts.filter(
+        ins => ins.target !== id && ins.catalog !== id
+      );
+      if (state.currentCatalogId === id) {
+        state.currentCatalogId = state.catalogs[0].id; // 自动切到剩下的目录
+        pan = { x: 0, y: 0 };
+        scale = 1;
+      }
+      save();
+      render();
+    }
+
+    function startCatalogRename(li, cat) {
+      const nameEl = li.querySelector(".catalog-item-name");
+      if (!nameEl || li.querySelector(".catalog-rename-input")) return;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "catalog-rename-input";
+      input.maxLength = 40;
+      input.value = cat.name;
+      input.setAttribute("aria-label", "修改目录名称");
+      nameEl.style.display = "none";
+      li.insertBefore(input, nameEl);
+      input.focus();
+      input.select();
+      let doneRename = false;
+      const commit = ok => {
+        if (doneRename) return;
+        doneRename = true;
+        const value = input.value.trim().slice(0, 40);
+        input.remove();
+        nameEl.style.display = "";
+        if (ok && value && value !== cat.name) {
+          cat.name = value;
+          save();
+          render(); // 同步侧栏高亮与 logo 提示文字
+        }
+      };
+      input.addEventListener("keydown", ev => {
+        if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
+        else if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
+      });
+      input.addEventListener("blur", () => commit(true));
+      input.addEventListener("pointerdown", ev => ev.stopPropagation());
+      input.addEventListener("mousedown", ev => ev.stopPropagation());
+      input.addEventListener("click", ev => ev.stopPropagation());
+      input.addEventListener("dblclick", ev => ev.stopPropagation());
+    }
+
+    function clearCatDropMarks() {
+      catTree.querySelectorAll(".cat-drop-over").forEach(el => el.classList.remove("cat-drop-over"));
+    }
+
+    // 把目录 catId 插入到当前目录树的 nodeId 分支上（出现 logo）
+    function insertCatalogOnNode(catId, nodeId) {
+      if (catId === state.currentCatalogId) {
+        showLinkHint("不能把目录插入到它自己的树上", false);
+        return;
+      }
+      const target = state.catalogs.find(c => c.id === catId);
+      if (!target || !nodeById(nodeId)) return;
+      const dup = state.catalogInserts.some(
+        ins => ins.catalog === state.currentCatalogId && ins.node === nodeId && ins.target === catId
+      );
+      if (dup) {
+        showLinkHint("该分支上已插入过此目录", false);
+        return;
+      }
+      state.catalogInserts.push({ catalog: state.currentCatalogId, node: nodeId, target: catId });
+      save();
+      renderTree();
+      showLinkHint(`已把「${target.name}」插入到该分支，点旁边的小 logo 可跳转`, false);
+    }
+
+    catalogCollapseBtn.addEventListener("click", () => {
+      state.sidebarOpen = false;
+      save();
+      applySidebarOpen();
+    });
+    catalogRailBtn.addEventListener("click", () => {
+      state.sidebarOpen = true;
+      save();
+      applySidebarOpen();
+    });
+    catalogAddBtn.addEventListener("click", () => createCatalog());
+
+    catalogList.addEventListener("click", e => {
+      const li = e.target.closest(".catalog-item");
+      if (!li) return;
+      if (e.target.closest(".catalog-rename-input")) return;
+      if (e.target.closest(".catalog-item-del")) {
+        deleteCatalog(li.dataset.catId);
+        return;
+      }
+      switchCatalog(li.dataset.catId);
+    });
+
+    catalogList.addEventListener("dblclick", e => {
+      const nameEl = e.target.closest(".catalog-item-name");
+      if (!nameEl) return;
+      const li = nameEl.closest(".catalog-item");
+      const cat = state.catalogs.find(c => c.id === (li && li.dataset.catId));
+      if (cat) startCatalogRename(li, cat);
+    });
+
+    // 侧栏目录拖拽：用专用 dataTransfer 类型，不影响树上节点改挂载
+    catalogList.addEventListener("dragstart", e => {
+      const li = e.target.closest(".catalog-item");
+      if (!li) return;
+      catalogDragId = li.dataset.catId;
+      li.classList.add("dragging-cat");
+      e.dataTransfer.effectAllowed = "link";
+      e.dataTransfer.setData(CATALOG_DRAG_TYPE, String(catalogDragId));
+      e.dataTransfer.setData("text/plain", "catalog:" + catalogDragId);
+    });
+    catalogList.addEventListener("dragend", () => {
+      catalogDragId = null;
+      catalogList.querySelectorAll(".dragging-cat").forEach(el => el.classList.remove("dragging-cat"));
+      clearCatDropMarks();
+    });
+
+    applySidebarOpen();
     render();
   </script>
 </body>
