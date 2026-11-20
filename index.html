@@ -4,18 +4,78 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>综合签到打卡器</title>
+  <!-- PWA：manifest 与图标全部用相对路径，GitHub Pages 子路径部署同样生效 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3efe6" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#15171c" />
+  <script>
+    // 主题引导（放 <head> 里尽早执行，避免暗色用户先闪一下浅色）：
+    // 偏好存独立 key signin-tracker-theme（"light" | "dark"），未存过时跟随系统
+    // prefers-color-scheme；只写 <html data-theme>，不碰签到数据（signin-tracker-v1）。
+    (function () {
+      var saved = null;
+      try { saved = localStorage.getItem("signin-tracker-theme"); } catch (e) {}
+      var dark = saved === "dark" || (!saved && window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    })();
+  </script>
   <style>
+    /* 主题色浅/深成对定义（浅色暖纸感保留为默认，暗色 = <html data-theme="dark">）：
+       新增的 --branch-done / --branch-todo 同时供 JS 画分支与目录圈取色
+       （见 refreshBranchHexes），保证暗色下 DONE_HEX/TODO_HEX 依然可读。 */
     :root {
       --bg: #f3efe6;
+      --bg-tint: #efe6d4;
       --paper: #fffdf8;
       --ink: #1e2430;
       --muted: #6b7280;
       --line: #e6dfd2;
       --accent: #1f6b4a;
       --accent-soft: #e7f4ee;
+      --accent-soft-strong: #dceee4;
       --danger: #b42318;
       --danger-soft: #fdeeea;
+      --node-done-border: #bfe0cf;
+      --node-todo-border: #f0c9c6;
+      --btn-bg: #ffffff;
+      --btn-bg-hover: #f7f3eb;
+      --tint-a: rgba(31, 107, 74, 0.04);
+      --tint-b: rgba(180, 35, 24, 0.03);
+      --branch-done: #1f6b4a; /* DONE_HEX 浅色值 */
+      --branch-todo: #b42318; /* TODO_HEX 浅色值 */
+      --hint-bg: #1e2430;
+      --hint-ink: #fffdf8;
       --shadow: 0 10px 30px rgba(30, 36, 48, 0.07);
+      --radius: 16px;
+    }
+    /* 暗色：暖夜灰底，绿/红整体提亮一档，分支、连线、卡片文字保持可读 */
+    :root[data-theme="dark"] {
+      --bg: #15171c;
+      --bg-tint: #1e2127;
+      --paper: #1d2026;
+      --ink: #e8e3d9;
+      --muted: #a0a5ac;
+      --line: #34383f;
+      --accent: #5cbd8d;
+      --accent-soft: #21362b;
+      --accent-soft-strong: #2b4335;
+      --danger: #e08373;
+      --danger-soft: #3b2a25;
+      --node-done-border: #3d5b4b;
+      --node-todo-border: #6b4239;
+      --btn-bg: #262a31;
+      --btn-bg-hover: #2f343c;
+      --tint-a: rgba(92, 189, 141, 0.05);
+      --tint-b: rgba(224, 131, 115, 0.04);
+      --branch-done: #52b387; /* 暗色下提亮的 DONE_HEX */
+      --branch-todo: #e08373; /* 暗色下提亮的 TODO_HEX */
+      --hint-bg: #e8e3d9;
+      --hint-ink: #1d2026;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
       --radius: 16px;
     }
     * { box-sizing: border-box; font-weight: 400; }
@@ -26,7 +86,7 @@
     }
     body {
       background:
-        radial-gradient(900px 400px at 10% -10%, #efe6d4 0%, transparent 55%),
+        radial-gradient(900px 400px at 10% -10%, var(--bg-tint) 0%, transparent 55%),
         var(--bg);
       color: var(--ink);
       overflow: hidden;
@@ -39,10 +99,10 @@
     }
     button {
       cursor: pointer; border: 1px solid var(--line);
-      background: #fff; color: var(--ink); border-radius: 10px;
+      background: var(--btn-bg); color: var(--ink); border-radius: 10px;
       padding: 6px 10px;
     }
-    button:hover { background: #f7f3eb; }
+    button:hover { background: var(--btn-bg-hover); }
     button.ghost { background: transparent; }
 
     /* ===== 左侧目录侧栏 ===== */
@@ -64,6 +124,8 @@
     }
     .catalog-side-title { font-size: 15px; letter-spacing: 3px; color: var(--ink); }
     .catalog-collapse-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
+    /* 主题切换按钮：与侧栏收起按钮同款小圆钮（🌙 暗色 / ☀️ 浅色） */
+    .theme-toggle-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
     .catalog-list {
       flex: 1; min-height: 0; margin: 0; padding: 4px 8px;
       list-style: none; overflow-y: auto; overflow-x: hidden;
@@ -76,9 +138,9 @@
       color: var(--ink); background: transparent;
       white-space: nowrap;
     }
-    .catalog-item:hover { background: #f7f3eb; }
+    .catalog-item:hover { background: var(--btn-bg-hover); }
     .catalog-item.active {
-      background: var(--accent-soft); border-color: #bfe0cf; color: var(--accent);
+      background: var(--accent-soft); border-color: var(--node-done-border); color: var(--accent);
     }
     .catalog-item.dragging-cat { opacity: 0.5; }
     .catalog-item-name {
@@ -98,17 +160,32 @@
     .catalog-item .catalog-rename-input {
       flex: 1; min-width: 0; font-family: inherit; font-size: 13.5px;
       border: 1.5px solid var(--accent); border-radius: 8px;
-      padding: 3px 6px; outline: none; background: #fff; color: var(--ink);
+      padding: 3px 6px; outline: none; background: var(--btn-bg); color: var(--ink);
     }
     .catalog-side-foot { padding: 10px 12px 14px; white-space: nowrap; }
     .catalog-add-btn {
       width: 100%; padding: 8px 10px;
-      color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft);
+      color: var(--accent); border-color: var(--node-done-border); background: var(--accent-soft);
     }
-    .catalog-add-btn:hover { background: #dceee4; }
+    .catalog-add-btn:hover { background: var(--accent-soft-strong); }
     .catalog-rail {
       position: fixed; left: 10px; top: 10px; z-index: 900;
       padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
+    }
+    /* ===== 页头右侧：撤销 / 重做 ===== */
+    .history-bar {
+      position: fixed; right: 12px; top: 10px; z-index: 900;
+      display: flex; gap: 4px; align-items: center;
+      background: var(--paper); box-shadow: var(--shadow);
+      border: 1px solid var(--line); border-radius: 12px; padding: 4px;
+    }
+    .history-btn {
+      padding: 4px 12px; font-size: 13px; line-height: 1.6;
+      border-color: transparent; background: transparent; color: var(--ink);
+    }
+    .history-btn:hover:not(:disabled) { background: #f7f3eb; }
+    .history-btn:disabled {
+      color: var(--muted); opacity: 0.45; cursor: not-allowed; background: transparent;
     }
     /* 目录拖到分支上的落点提示（区别于节点改挂载的虚线框） */
     .mm-node.cat-drop-over > .node-btn {
@@ -136,12 +213,12 @@
       white-space: nowrap;
     }
     .catalog-logo.todo {
-      border: 2px dashed #b42318; /* TODO_HEX：与未完成任务块同色 */
-      background: var(--danger-soft); color: #b42318;
+      border: 2px dashed var(--branch-todo); /* TODO_HEX：与未完成任务块同色 */
+      background: var(--danger-soft); color: var(--branch-todo);
     }
     .catalog-logo.done {
-      border: 2px solid #1f6b4a; /* DONE_HEX：与已完成任务块同色 */
-      background: var(--accent-soft); color: #1f6b4a;
+      border: 2px solid var(--branch-done); /* DONE_HEX：与已完成任务块同色 */
+      background: var(--accent-soft); color: var(--branch-done);
     }
     .catalog-logo:hover { transform: translateY(-1px); }
     .catalog-logo .catalog-logo-check { font-size: 13px; }
@@ -156,8 +233,8 @@
       display: flex;
       flex-direction: column;
       background:
-        radial-gradient(600px 300px at 85% 20%, rgba(31, 107, 74, 0.04), transparent 70%),
-        radial-gradient(500px 300px at 20% 80%, rgba(180, 35, 24, 0.03), transparent 70%),
+        radial-gradient(600px 300px at 85% 20%, var(--tint-a), transparent 70%),
+        radial-gradient(500px 300px at 20% 80%, var(--tint-b), transparent 70%),
         var(--paper);
       border: none;
       border-radius: 0;
@@ -214,7 +291,7 @@
     .node-btn {
       position: relative;
       display: inline-flex; align-items: center; gap: 7px;
-      border: 1.5px solid var(--line); background: #fff;
+      border: 1.5px solid var(--line); background: var(--btn-bg);
       border-radius: 999px; padding: 6px 14px; font-size: 13.5px;
       box-shadow: 0 3px 10px rgba(30, 36, 48, 0.05);
       transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
@@ -229,8 +306,8 @@
     }
     .node-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(30, 36, 48, 0.1); }
     .node-btn.toggle { border-style: dashed; }
-    .node-btn:not(.done) { background: var(--danger-soft); border-color: #f0c9c6; color: var(--danger); }
-    .node-btn.done { background: var(--accent-soft); border-color: #bfe0cf; border-style: solid; color: var(--accent); }
+    .node-btn:not(.done) { background: var(--danger-soft); border-color: var(--node-todo-border); color: var(--danger); }
+    .node-btn.done { background: var(--accent-soft); border-color: var(--node-done-border); border-style: solid; color: var(--accent); }
     .node-btn .state { font-size: 12px; opacity: 0.9; }
     .node-dot {
       width: 9px; height: 9px; border-radius: 50%;
@@ -296,7 +373,7 @@
       font-size: 13.5px;
       font-weight: 400;
       border: 1.5px solid var(--accent);
-      background: #fff;
+      background: var(--btn-bg);
       color: var(--ink);
       border-radius: 999px;
       padding: 6px 14px;
@@ -317,7 +394,7 @@
       font-size: 12px;
       font-weight: 400;
       border: 1.5px solid var(--accent);
-      background: #fff;
+      background: var(--btn-bg);
       color: var(--ink);
       border-radius: 10px;
       padding: 5px 10px;
@@ -362,20 +439,20 @@
       padding: 6px 12px;
       font-size: 13px;
     }
-    .ctx-menu button:hover { background: #f7f3eb; }
+    .ctx-menu button:hover { background: var(--btn-bg-hover); }
     .ctx-menu button.danger { color: var(--danger); }
     .ctx-menu button.danger:hover { background: var(--danger-soft); }
 
     /* ===== 任务连线（绕障有机曲线虚线，与分支同色系） ===== */
     .mindmap-link {
       fill: none;
-      stroke: #b42318; /* TODO_HEX，与未完成分支同色 */
+      stroke: var(--branch-todo); /* TODO_HEX，与未完成分支同色 */
       stroke-opacity: 0.82;
       stroke-width: 2.6;
       stroke-dasharray: 9 7;
       stroke-linecap: round;
     }
-    .mindmap-link.done { stroke: #1f6b4a; stroke-opacity: 0.85; }
+    .mindmap-link.done { stroke: var(--branch-done); stroke-opacity: 0.85; }
     /* 虚线加宽透明的点击命中区：让右键好点中；分支/其余 SVG 仍不响应事件 */
     .mindmap-link-hit {
       fill: none;
@@ -395,8 +472,8 @@
       transform: translateX(-50%);
       z-index: 1200;
       max-width: 82vw;
-      background: var(--ink);
-      color: #fffdf8;
+      background: var(--hint-bg);
+      color: var(--hint-ink);
       border-radius: 999px;
       padding: 8px 18px;
       font-size: 13px;
@@ -407,13 +484,335 @@
       text-overflow: ellipsis;
     }
     .link-hint[hidden] { display: none !important; }
+
+    /* ===== 画布控制（canvas-controls 新增）：顶部搜索 + 右下角悬浮工具条 ===== */
+    .tree-card { position: relative; }
+
+    /* 顶部展开式搜索框：默认只露一个放大镜按钮，聚焦/有内容时展开输入框 */
+    .canvas-search {
+      position: absolute;
+      top: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 800;
+      display: flex; align-items: center; gap: 6px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 6px 3px 3px;
+      box-shadow: var(--shadow);
+      max-width: calc(100% - 32px);
+    }
+    .canvas-search .search-toggle-btn,
+    .canvas-search .undo-toggle-btn {
+      border: none; background: transparent; padding: 5px 8px;
+      border-radius: 999px; white-space: nowrap; font-size: 12.5px;
+      display: inline-flex; align-items: center; gap: 4px;
+      color: var(--ink); flex-shrink: 0;
+    }
+    .canvas-search .search-toggle-btn:hover,
+    .canvas-search .undo-toggle-btn:hover { background: #f7f3eb; }
+    .canvas-search input {
+      border: none; outline: none; background: transparent;
+      font-family: inherit; font-size: 13px; color: var(--ink);
+      width: 0; padding: 0; transition: width 0.18s ease, padding 0.18s ease;
+      flex: 0 1 auto; min-width: 0;
+    }
+    .canvas-search.open input { width: 168px; padding: 4px 6px; flex: 1 1 auto; }
+    .canvas-search .undo-toggle-btn[aria-pressed="true"] {
+      background: var(--accent-soft); color: var(--accent);
+      border: 1px solid #bfe0cf; padding: 4px 7px; /* 与未按下状态等高 */
+    }
+    .canvas-search .search-count {
+      font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0;
+    }
+    .canvas-search .search-count[hidden] { display: none; }
+
+    /* 搜索命中 / 淡化：命中加描边，未命中与已完成叶子整体降透明度（不动布局） */
+    .mm-node.search-hit > .node-btn {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    .mm-node.search-dim { opacity: 0.22; }
+    .mm-node.done-dim { opacity: 0.16; }
+
+    /* 折叠/展开小箭头：分支节点胶囊左侧的小圆钮，绝对定位不占布局 */
+    .node-fold {
+      position: absolute; left: -26px; top: 50%; transform: translateY(-50%);
+      width: 20px; height: 20px; padding: 0; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1; color: var(--muted);
+      background: var(--paper); border: 1px solid var(--line);
+      z-index: 6;
+    }
+    .node-fold:hover { color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft); }
+    .node-fold.collapsed { color: var(--accent); border-color: #bfe0cf; }
+    /* 折叠后父节点右侧的「已完成数/总数」徽章：未全完 = 红虚线，全完 = 绿实线 */
+    .node-fold-badge {
+      position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%);
+      font-size: 10px; line-height: 1; letter-spacing: 0;
+      padding: 3px 8px; border-radius: 999px;
+      border: 1.5px dashed #b42318; color: #b42318; background: var(--danger-soft);
+      white-space: nowrap; pointer-events: none; z-index: 5;
+    }
+    .node-fold-badge.all-done {
+      border-style: solid; border-color: #1f6b4a; color: #1f6b4a; background: var(--accent-soft);
+    }
+
+    /* 右下角竖排悬浮工具条：放大 / 缩小 / 百分比（点击回 100%）/ 适应画布 / 全部展开 */
+    .canvas-toolbar {
+      position: absolute; right: 16px; bottom: 16px; z-index: 800;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 7px 6px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .canvas-toolbar button {
+      width: 36px; min-height: 30px; padding: 4px;
+      border: none; background: transparent; color: var(--ink);
+      border-radius: 8px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; line-height: 1;
+    }
+    .canvas-toolbar button:hover { background: #f7f3eb; }
+    .canvas-toolbar .zoom-label { min-width: 36px; font-size: 11px; }
+    .canvas-toolbar .toolbar-sep {
+      width: 22px; border-top: 1px solid var(--line); margin: 2px 0;
+    }
+
+    /* ===== 每日打卡日历面板（右侧，与目录侧栏各自独立收起） ===== */
+    .daily-aside {
+      width: 252px;
+      flex: 0 0 auto;
+      min-height: 0;
+      background: var(--paper);
+      border-left: 1px solid var(--line);
+      overflow: hidden;
+      transition: width 0.2s ease;
+      white-space: nowrap;
+    }
+    .daily-aside.collapsed { width: 0; border-left-color: transparent; border-left-width: 0; }
+    .daily-inner {
+      width: 252px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 12px 14px;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .daily-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .daily-title { font-size: 15px; letter-spacing: 3px; color: var(--ink); }
+    .daily-collapse-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
+    .daily-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .daily-nav .cal-month-label { font-size: 13.5px; letter-spacing: 1px; }
+    .daily-nav button { padding: 2px 10px; }
+    .cal-week-row, .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+    }
+    .cal-week-row span {
+      text-align: center; font-size: 11px; color: var(--muted); padding: 2px 0;
+    }
+    .cal-grid { margin-bottom: 10px; }
+    /* 日期格：背景色由 JS 按当日完成率写入（--accent 色系 rgba 热力） */
+    .cal-cell {
+      position: relative;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 3px 2px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 12.5px;
+      line-height: 1.2;
+      color: var(--ink);
+    }
+    .cal-cell.blank { border-color: transparent; background: transparent; min-height: 0; }
+    .cal-cell:not(.blank):not(.full):hover { background: #f7f3eb; }
+    .cal-cell.future { color: var(--muted); }
+    /* 今天：保留内描边高亮（全完为深底时换成纸色描边保证可见） */
+    .cal-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
+    .cal-cell.today.full { box-shadow: inset 0 0 0 2px #fffdf8; }
+    .cal-cell.selected { border-color: var(--ink); border-width: 1.5px; }
+    /* 当日 daily 任务全部完成：实心强调色 + 纸色文字（热力最深档，压过行内热力底色） */
+    .cal-cell.full { background: var(--accent) !important; border-color: var(--accent); color: #fffdf8; }
+    .cal-cell.full .cal-frac { color: #fffdf8; }
+    .cal-frac { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .daily-stats {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      display: flex; flex-direction: column; gap: 6px;
+      margin-top: auto;
+    }
+    .daily-stat { display: flex; align-items: baseline; justify-content: space-between; }
+    .daily-stat-label { font-size: 12px; color: var(--muted); }
+    .daily-stat-val { font-size: 13.5px; color: var(--accent); }
+    .daily-rail {
+      position: fixed; right: 10px; top: 10px; z-index: 900;
+      padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
+    }
+    /* 每日打卡节点的迷你徽标 */
+    .node-btn .daily-badge {
+      font-size: 9.5px; line-height: 1;
+      padding: 2px 5px;
+      border-radius: 999px;
+      border: 1px solid #bfe0cf;
+      background: var(--accent-soft);
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .node-btn:not(.done) .daily-badge {
+      border-color: #f0c9c6; background: var(--danger-soft); color: var(--danger);
+    }
+    /* 右键菜单禁用态（分支/根节点不可设为每日打卡） */
+    .ctx-menu button:disabled { color: var(--muted); opacity: 0.45; cursor: not-allowed; }
+    .ctx-menu button:disabled:hover { background: transparent; }
+    /* 侧栏底部迷你统计：仅当前目录存在 daily 任务时渲染内容（存量数据下保持原样） */
+    .daily-mini-stats {
+      margin: 0 0 8px;
+      padding: 6px 8px;
+      border: 1px dashed #bfe0cf;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    /* ===== 自定义 Modal / Toast（替代原生 confirm/alert，桌面与触屏同一套） ===== */
+    .mm-modal-mask {
+      position: fixed; inset: 0; z-index: 1500;
+      background: rgba(30, 36, 48, 0.32);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .mm-modal-mask[hidden] { display: none !important; }
+    .mm-modal {
+      width: min(92vw, 360px);
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 18px 14px;
+    }
+    .mm-modal-title { font-size: 16px; letter-spacing: 1px; margin-bottom: 10px; color: var(--ink); }
+    .mm-modal-body {
+      font-size: 13.5px; line-height: 1.7; color: var(--ink);
+      white-space: pre-wrap; word-break: break-word; margin-bottom: 16px;
+    }
+    .mm-modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+    .mm-modal-btns button { min-width: 88px; padding: 8px 14px; }
+    .mm-modal-btns button.ok { color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft); }
+    .mm-modal-btns button.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+    .mm-modal-btns button.danger:hover { background: #97190f; }
+
+    .mm-toast {
+      position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%;
+      transform: translateX(-50%);
+      z-index: 1600; max-width: 86vw;
+      background: var(--ink); color: var(--paper);
+      border-radius: 999px; padding: 9px 18px;
+      font-size: 13px; letter-spacing: 0.5px;
+      box-shadow: var(--shadow);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mm-toast[hidden] { display: none !important; }
+    .mm-toast.success { background: var(--accent); }
+    .mm-toast.error { background: var(--danger); }
+
+    /* ===== 触屏长按弹出的底部操作抽屉（Action Sheet） ===== */
+    .touch-sheet-mask {
+      position: fixed; inset: 0; z-index: 1250;
+      background: rgba(30, 36, 48, 0.28);
+    }
+    .touch-sheet-mask[hidden] { display: none !important; }
+    .touch-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 1260;
+      margin: 0 auto; max-width: 560px;
+      background: var(--paper);
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 -8px 30px rgba(30, 36, 48, 0.18);
+      padding: 8px 14px calc(12px + env(safe-area-inset-bottom));
+      animation: sheet-up 0.22s ease;
+    }
+    .touch-sheet[hidden] { display: none !important; }
+    @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+    .touch-sheet-grab { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 8px; }
+    .touch-sheet-title {
+      text-align: center; font-size: 12.5px; color: var(--muted);
+      margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .touch-sheet-actions { display: flex; flex-direction: column; gap: 6px; }
+    .touch-sheet-actions button {
+      width: 100%; padding: 12px 14px; font-size: 14.5px;
+      border-radius: 12px; text-align: center; background: #fff;
+    }
+    .touch-sheet-actions button.danger { color: var(--danger); border-color: #f0c9c6; background: var(--danger-soft); }
+    .touch-sheet-cancel {
+      width: 100%; margin-top: 8px; padding: 11px 14px; font-size: 14px;
+      color: var(--muted); background: #f7f3eb;
+    }
+
+    /* ===== 移动端（视口 <760px）：目录侧栏改为可收起的抽屉 ===== */
+    .mobile-menu-btn {
+      display: none;
+      position: fixed; left: 12px; top: calc(12px + env(safe-area-inset-top)); z-index: 940;
+      width: 40px; height: 40px; padding: 0;
+      align-items: center; justify-content: center;
+      font-size: 18px; line-height: 1;
+      background: var(--paper); box-shadow: var(--shadow);
+    }
+    .drawer-mask {
+      position: fixed; inset: 0; z-index: 945;
+      background: rgba(30, 36, 48, 0.25);
+    }
+    .drawer-mask[hidden] { display: none !important; }
+    @media (max-width: 759px) {
+      .catalog-sidebar {
+        position: fixed; left: 0; top: 0; bottom: 0;
+        width: min(78vw, 300px);
+        z-index: 950; transform: translateX(-103%);
+        transition: transform 0.25s ease;
+        border-right: 1px solid var(--line);
+        box-shadow: var(--shadow);
+      }
+      .catalog-sidebar.drawer-open { transform: none; }
+      .catalog-rail { display: none !important; }
+      .mobile-menu-btn { display: inline-flex; }
+    }
+    /* 触屏细节：去掉点按高亮与系统长按呼出 */
+    .mindmap-stage, .node-btn, .catalog-item {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+    }
   </style>
+  <script>
+    // 注册 Service Worker（sw.js：network-first，断网兜底走缓存；版本号常量见 sw.js）。
+    // 相对路径注册，GitHub Pages 子路径 / 本地静态服务都可用；
+    // 不支持 SW 的环境（如 file://、about:blank）安静跳过，不影响页面功能。
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function (err) {
+          console.warn("Service Worker 注册失败：", err);
+        });
+      });
+    }
+  </script>
 </head>
 <body>
   <div class="wrap">
     <aside class="catalog-sidebar" id="catalogSidebar" aria-label="目录侧栏">
       <div class="catalog-side-head">
         <span class="catalog-side-title">目录</span>
+        <button type="button" class="ghost theme-toggle-btn" id="themeToggleBtn" title="切换到暗色主题">🌙</button>
         <button type="button" class="ghost catalog-collapse-btn" id="catalogCollapseBtn" title="收起目录侧栏">«</button>
       </div>
       <ul class="catalog-list" id="catalogList"></ul>
@@ -425,15 +824,67 @@
       <div class="mindmap-stage" id="mindmapStage">
         <div class="mindmap-canvas" id="catTree"></div>
       </div>
+      <!-- 顶部展开式搜索框：关键词高亮 + 只看未完成开关（会话内状态，不持久化） -->
+      <div class="canvas-search" id="canvasSearch">
+        <button type="button" class="search-toggle-btn" id="searchToggleBtn" title="搜索节点（名称/说明）" aria-label="展开搜索框" aria-expanded="false">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <input id="searchInput" type="text" placeholder="搜索节点 / 说明" aria-label="搜索节点或说明" maxlength="40" />
+        <span class="search-count" id="searchCount" hidden aria-live="polite"></span>
+        <button type="button" class="undo-toggle-btn" id="undoFilterBtn" aria-pressed="false" title="只看未完成：淡化已完成的叶子（分支照常）">只看未完成</button>
+      </div>
+      <!-- 右下角竖排画布工具条 -->
+      <div class="canvas-toolbar" id="canvasToolbar" role="toolbar" aria-label="画布缩放与展开控制" aria-orientation="vertical">
+        <button type="button" id="zoomInBtn" title="放大" aria-label="放大">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3.2 v9.6 M3.2 8 h9.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" id="zoomOutBtn" title="缩小" aria-label="缩小">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.2 8 h9.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" id="zoomLabelBtn" class="zoom-label" title="恢复 100% 缩放" aria-label="当前缩放百分比，点击恢复 100%">100%</button>
+        <div class="toolbar-sep" aria-hidden="true"></div>
+        <button type="button" id="fitViewBtn" title="一键适应画布（整棵树纳入视野）" aria-label="一键适应画布">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 5.5 V3 a1 1 0 0 1 1-1 h2.5 M10.5 2 h2.5 a1 1 0 0 1 1 1 v2.5 M14 10.5 v2.5 a1 1 0 0 1-1 1 h-2.5 M5.5 14 H3 a1 1 0 0 1-1-1 v-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" id="expandAllBtn" title="全部展开折叠的分支" aria-label="全部展开">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.5 6.5 L14 2 M14 2 h-4 M14 2 v4 M6.5 9.5 L2 14 M2 14 h4 M2 14 v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </section>
+
+    <!-- 每日打卡日历：选日期 → daily 任务按当日记录打卡/补签；格内 n/m 与热力背景 -->
+    <aside class="daily-aside collapsed" id="dailyAside" aria-label="打卡日历">
+      <div class="daily-inner">
+        <div class="daily-head">
+          <span class="daily-title">打卡日历</span>
+          <button type="button" class="ghost daily-collapse-btn" id="dailyCollapseBtn" title="收起日历面板">»</button>
+        </div>
+        <div class="daily-nav">
+          <button type="button" id="calPrevBtn" title="上个月">‹</button>
+          <span class="cal-month-label" id="calMonthLabel"></span>
+          <button type="button" id="calNextBtn" title="下个月">›</button>
+        </div>
+        <div class="cal-week-row" id="calWeekRow"></div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="daily-stats" id="dailyStats"></div>
+      </div>
+    </aside>
   </div>
 
   <button type="button" id="catalogRail" class="catalog-rail ghost" title="展开目录侧栏" hidden>» 目录</button>
+
+  <!-- 页头右侧：撤销 / 重做（历史栈实现见脚本「撤销 / 重做（历史栈）」一节） -->
+  <div class="history-bar" id="historyBar" role="toolbar" aria-label="撤销与重做">
+    <button type="button" id="undoBtn" class="history-btn" title="撤销上一步（Ctrl+Z）" aria-label="撤销上一步操作" disabled>↩ 撤销</button>
+    <button type="button" id="redoBtn" class="history-btn" title="重做（Ctrl+Shift+Z 或 Ctrl+Y）" aria-label="重做已撤销的操作" disabled>↪ 重做</button>
+  </div>
+  <button type="button" id="dailyRail" class="daily-rail ghost" title="展开打卡日历" hidden>日历</button>
 
   <div id="ctxMenu" class="ctx-menu" hidden>
     <button type="button" data-act="add">+ 分支</button>
     <button type="button" data-act="rename">改名</button>
     <button type="button" data-act="note">插入说明</button>
+    <button type="button" data-act="kind">设为每日打卡</button>
     <button type="button" data-act="link">连线</button>
     <button type="button" data-act="unlink">取消连线</button>
     <button type="button" data-act="unpin">移除目录标识</button>
@@ -450,74 +901,148 @@
 
   <div id="linkHint" class="link-hint" hidden></div>
 
+  <!-- 自定义确认弹窗 / Toast：替代浏览器原生对话框（行为语义不变） -->
+  <div id="mmModal" class="mm-modal-mask" hidden role="dialog" aria-modal="true" aria-labelledby="mmModalTitle">
+    <div class="mm-modal">
+      <div class="mm-modal-title" id="mmModalTitle">确认操作</div>
+      <div class="mm-modal-body" id="mmModalBody"></div>
+      <div class="mm-modal-btns">
+        <button type="button" id="mmModalCancel">取消</button>
+        <button type="button" id="mmModalOk" class="danger">确定</button>
+      </div>
+    </div>
+  </div>
+  <div id="mmToast" class="mm-toast" hidden role="status"></div>
+
+  <!-- 触屏长按弹出的底部操作抽屉 -->
+  <div id="touchSheetMask" class="touch-sheet-mask" hidden></div>
+  <div id="touchSheet" class="touch-sheet" hidden role="menu" aria-label="节点操作">
+    <div class="touch-sheet-grab"></div>
+    <div class="touch-sheet-title" id="touchSheetTitle"></div>
+    <div class="touch-sheet-actions" id="touchSheetActions"></div>
+    <button type="button" class="touch-sheet-cancel" id="touchSheetCancel">取消</button>
+  </div>
+
+  <!-- 移动端汉堡按钮 + 目录抽屉遮罩 -->
+  <button type="button" id="mobileMenuBtn" class="mobile-menu-btn ghost" title="打开目录" aria-label="打开目录">☰</button>
+  <div id="drawerMask" class="drawer-mask" hidden></div>
+
   <script>
     /* ==== CATALOG-PURE-START ==== */
     // 本段为纯函数区（无 DOM / localStorage 依赖）：
     // 含默认树、节点规范化、旧数据迁移（resolveState）与多目录解析
     // （resolveCatalogState）。catalog-selfcheck.mjs 会抽取本段做迁移自检。
     const STORAGE_KEY = "signin-tracker-v1";
+    // 默认树 = 中性示例模板（三层：主题 → 方面 → 每日小事），不带任何第三方
+    // App / 商标 / 真实人名地名；每个节点配一句中性说明（note）。
+    // 合规调整只影响「新用户首开」与「仍是旧示例树」的本地数据（见 isLegacySampleOnly），
+    // 存量用户树有迁移守卫保护，不会被这份默认树覆盖。
+    // 节点 id 用 dflt- 前缀：与旧示例集合（LEGACY_SAMPLE_IDS）、用户树根
+    // （USER_ROOT_ID，nmw…）和 NeurCross 预置（nc_…）都不冲突。
     const DEFAULT_NODES = [
-      { id: "nmwiyegtzm0v4", name: "昆仑数模", parentId: null, done: false, completedAt: "" },
-      { id: "nmwiyekmtshvg", name: "上海大学", parentId: null, done: false, completedAt: "" },
-      { id: "nmwiyes47mg9k", name: "王静", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
-      { id: "nmwiyf1ofag9i", name: "G5二次开发", parentId: "nmwiyes47mg9k", done: false, completedAt: "" },
-      { id: "nmwiyfd4n5bi5", name: "宋亦诚", parentId: "nmwiyekmtshvg", done: false, completedAt: "" },
-      { id: "nmwiyfjkrrj1t", name: "有限元作业批改", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
-      { id: "nmwiyg84eqd74", name: "基于标架场的全四边形动网格", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
-      { id: "nmwiyh6f0uvi5", name: "上机作业@第三周", parentId: "nmwiyfjkrrj1t", done: true, completedAt: "2026-11-17 16:10" },
-      { id: "nmwiyhe7ow45g", name: "上机作业@第四周", parentId: "nmwiyfjkrrj1t", done: false, completedAt: "" },
-      { id: "nmwiyhi0un6d9", name: "代码", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
-      { id: "nmwiyhmuh3kk8", name: "算例", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
-      { id: "nmwiyhrdyz4x1", name: "文章本体", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
-      { id: "nmwiyhvwukpr5", name: "PPT汇报", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
-      { id: "nmwiyi34z6iem", name: "昆仑的工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
-      { id: "nmwiyi6ogqspx", name: "科研工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
-      { id: "nmwkexync69fx", name: "G5输出三角形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
-      { id: "nmwkey9gw84md", name: "程序读取节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
-      { id: "nmwkeyg24u5em", name: "G5读取四边形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
-      { id: "nmwkezurhvevm", name: "读取三角形节点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
-      { id: "nmwkf046xe2ip", name: "布置/光滑标架场", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
-      { id: "nmwkf08uatt86", name: "找奇异点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
-      { id: "nmwkf0d77uxqr", name: "分块", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
-      { id: "nmwkf0i9b3ft6", name: "生成四边形网格", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" }
+      { id: "dflt-health", name: "健康作息", parentId: null, done: false, completedAt: "",
+        note: "示例模板：把每天的身体状态拆成几件可勾选的小事" },
+      { id: "dflt-health-sleep", name: "规律睡眠", parentId: "dflt-health", done: false, completedAt: "",
+        note: "固定入睡与起床时间，帮助身体形成节律" },
+      { id: "dflt-health-sleep-1", name: "23:00 前放下手机", parentId: "dflt-health-sleep", done: false, completedAt: "",
+        note: "睡前半小时远离屏幕，更容易入睡" },
+      { id: "dflt-health-sleep-2", name: "保持 7–8 小时睡眠", parentId: "dflt-health-sleep", done: false, completedAt: "",
+        note: "醒来精神饱满即为合适的时长" },
+      { id: "dflt-health-move", name: "适量运动", parentId: "dflt-health", done: false, completedAt: "",
+        note: "低强度活动积累起来同样有效" },
+      { id: "dflt-health-move-1", name: "快走或慢跑 30 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
+        note: "通勤步行也可以折算进来" },
+      { id: "dflt-health-move-2", name: "睡前拉伸 10 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
+        note: "重点放松肩颈与腰背" },
+      { id: "dflt-health-eat", name: "均衡饮食", parentId: "dflt-health", done: false, completedAt: "",
+        note: "规律三餐，少油少糖" },
+      { id: "dflt-health-eat-1", name: "按时吃早餐", parentId: "dflt-health-eat", done: false, completedAt: "",
+        note: "为上午提供稳定精力" },
+      { id: "dflt-health-eat-2", name: "足量饮水", parentId: "dflt-health-eat", done: false, completedAt: "",
+        note: "少量多次，不必一次喝完" },
+      { id: "dflt-learn", name: "学习提升", parentId: null, done: false, completedAt: "",
+        note: "示例模板：输入与练习搭配，记录每天的学习节奏" },
+      { id: "dflt-learn-read", name: "阅读输入", parentId: "dflt-learn", done: false, completedAt: "",
+        note: "把阅读拆到页数或章节，更容易坚持" },
+      { id: "dflt-learn-read-1", name: "阅读 20 页", parentId: "dflt-learn-read", done: false, completedAt: "",
+        note: "纸质书或电子书都可以" },
+      { id: "dflt-learn-read-2", name: "摘抄 3 句笔记", parentId: "dflt-learn-read", done: false, completedAt: "",
+        note: "再写一句自己的理解更好" },
+      { id: "dflt-learn-skill", name: "技能练习", parentId: "dflt-learn", done: false, completedAt: "",
+        note: "固定时段专注练习一项技能" },
+      { id: "dflt-learn-skill-1", name: "专注练习 25 分钟", parentId: "dflt-learn-skill", done: false, completedAt: "",
+        note: "大约一个番茄钟的时长" },
+      { id: "dflt-learn-skill-2", name: "整理练习记录", parentId: "dflt-learn-skill", done: false, completedAt: "",
+        note: "每周复盘一次进度" },
+      { id: "dflt-work", name: "工作效率", parentId: null, done: false, completedAt: "",
+        note: "示例模板：先计划后执行，减少切换成本" },
+      { id: "dflt-work-plan", name: "计划先行", parentId: "dflt-work", done: false, completedAt: "",
+        note: "每天列出少量要事，优先完成" },
+      { id: "dflt-work-plan-1", name: "早晨列出 3 件要事", parentId: "dflt-work-plan", done: false, completedAt: "",
+        note: "完成后逐项打勾" },
+      { id: "dflt-work-plan-2", name: "睡前核对清单", parentId: "dflt-work-plan", done: false, completedAt: "",
+        note: "未完成项顺延到明天" },
+      { id: "dflt-work-focus", name: "减少干扰", parentId: "dflt-work", done: false, completedAt: "",
+        note: "保护整块的注意力时间" },
+      { id: "dflt-work-focus-1", name: "专注时段静音通知", parentId: "dflt-work-focus", done: false, completedAt: "",
+        note: "集中时段统一回复消息更高效" },
+      { id: "dflt-work-focus-2", name: "单线程处理任务", parentId: "dflt-work-focus", done: false, completedAt: "",
+        note: "减少多任务来回切换" }
     ];
 
     const pad = n => String(n).padStart(2, "0");
     const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     const todayIso = () => iso(new Date());
 
-    const DONE_HEX = "#1f6b4a";
-    const TODO_HEX = "#b42318";
+    // 分支 / 连线 / 目录圈完成色：从 CSS 变量 --branch-done / --branch-todo 取
+    // （浅/深两套，见 :root 与 :root[data-theme="dark"]），取不到时回退浅色默认。
+    // 本段属纯函数区，不能依赖 DOM：getComputedStyle 用 try/catch 兜底（Node 自检环境
+    // 没有该全局也不抛错）。切主题时由 refreshBranchHexes() 刷新后重画。
+    const DONE_HEX_LIGHT = "#1f6b4a", TODO_HEX_LIGHT = "#b42318";
+    let DONE_HEX = DONE_HEX_LIGHT, TODO_HEX = TODO_HEX_LIGHT;
+    function cssVar(name, fallback) {
+      try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+      } catch (e) { return fallback; }
+    }
+    function refreshBranchHexes() {
+      DONE_HEX = cssVar("--branch-done", DONE_HEX_LIGHT);
+      TODO_HEX = cssVar("--branch-todo", TODO_HEX_LIGHT);
+    }
 
-    function formatShanghai(date) {
+    // 完成时间的墙钟格式化：不再写死 Asia/Shanghai，改用浏览器本地时区
+    // （Intl.DateTimeFormat 默认时区）。显示侧另有 TZ_LABEL 标注当前时区。
+    function formatLocalWallClock(date) {
       const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Shanghai",
         year: "numeric", month: "2-digit", day: "2-digit",
         hour: "2-digit", minute: "2-digit", hour12: false
       }).formatToParts(date);
       const get = t => (parts.find(p => p.type === t) || {}).value || "";
       return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
     }
-    function nowCompletedAt() { return formatShanghai(new Date()); }
+    function nowCompletedAt() { return formatLocalWallClock(new Date()); }
     function normalizeAt(at, dateFallback) {
       if (at) {
         const raw = String(at).trim();
-        // 本应用写入的完成时间一律是上海墙上时间（formatShanghai），且不带时区后缀。
-        // 这类串若再按浏览器本地时区解析一次，非 +08:00 环境每次加载都会漂移。
+        // 无时区后缀的墙钟串（本应用写入的格式）：按「本地时区墙钟」解释。
+        // 旧版本按上海墙钟写入的存量串在这里原样返回、原样显示，不做换算——
+        // 取舍说明见 REPORT.md（新数据本地时区，旧数据保持不变）。
         if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(?:\.\d+)?)?$/.test(raw)) {
-          // 只校验形状不够：2026-99-99 99:99 也会命中。用 +08:00 解析确认是真实时间，
+          // 只校验形状不够：2026-99-99 99:99 也会命中。按本地时区解析确认是真实时间
+          // （ES 规范：无偏移的日期时间串按本地时间解析，超界字段返回 NaN），
           // 非法值继续往下走 Date.parse/dateFallback，不再原样返回脏数据。
-          const wall = new Date(raw.replace(" ", "T") + "+08:00");
+          const wall = new Date(raw.replace(" ", "T"));
           if (!Number.isNaN(wall.getTime())) return raw.slice(0, 16).replace("T", " ");
         }
-        // 带时区/ISO 的时间（Z、+08:00 等）：解析后统一换算成上海时间
+        // 带时区/ISO 的时间（Z、+08:00 等）：解析后统一换算成本地时区墙钟
         if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) {
           const d = new Date(raw.replace(" ", "T"));
-          if (!Number.isNaN(d.getTime())) return formatShanghai(d);
+          if (!Number.isNaN(d.getTime())) return formatLocalWallClock(d);
         }
         if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw + " 00:00";
         const parsed = Date.parse(raw);
-        if (!Number.isNaN(parsed)) return formatShanghai(new Date(parsed));
+        if (!Number.isNaN(parsed)) return formatLocalWallClock(new Date(parsed));
       }
       if (dateFallback && /^\d{4}-\d{2}-\d{2}$/.test(dateFallback)) return dateFallback + " 00:00";
       return "";
@@ -632,6 +1157,44 @@
       return linkDone;
     }
 
+    // 日期串校验：YYYY-MM-DD 且为真实存在的日历日（2026-02-30 / 2026-13-01 均非法）。
+    // 纯字符串 + Date.UTC 回读校验，不依赖任何时区。
+    function isValidDateStr(s) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+      const y = +s.slice(0, 4), m = +s.slice(5, 7), d = +s.slice(8, 10);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+    }
+
+    // 每日打卡记录规范化：{ "YYYY-MM-DD": { [nodeId]: { done: true, at } } }
+    // - 非法日期键 / 非对象记录整体丢弃（脏数据不崩，也不原样写回）；
+    // - 只保留「当前仍是 daily 叶子」的节点：节点已删除或改回长期任务的记录一并失效；
+    // - 记录体统一收敛为 { done: true, at: 字符串 }，其余形状丢弃；
+    // - 清空后的空日期键不保留，避免存储里堆积 {}。
+    function normalizeDailyChecks(rawChecks, nodes) {
+      const out = {};
+      if (!rawChecks || typeof rawChecks !== "object") return out;
+      const parentIds = new Set(nodes.filter(n => n.parentId).map(n => n.parentId));
+      const dailyLeafIds = new Set(
+        nodes.filter(n => n.kind === "daily" && !parentIds.has(n.id)).map(n => n.id)
+      );
+      for (const date of Object.keys(rawChecks)) {
+        if (!isValidDateStr(date)) continue;
+        const rec = rawChecks[date];
+        if (!rec || typeof rec !== "object") continue;
+        const day = {};
+        for (const id of Object.keys(rec)) {
+          if (!dailyLeafIds.has(id)) continue;
+          const val = rec[id];
+          if (val && typeof val === "object" && val.done === true) {
+            day[id] = { done: true, at: val.at != null ? String(val.at) : "" };
+          }
+        }
+        if (Object.keys(day).length) out[date] = day;
+      }
+      return out;
+    }
+
     // 统一节点模型：完成状态挂在节点上（done + completedAt），不随日期切换。
     // 兼容旧版 nodeChecks[date][id] 以及更早的 items/categories/checks。
     function normalizeState(data) {
@@ -642,7 +1205,11 @@
           parentId: n.parentId ? String(n.parentId) : null,
           done: !!n.done,
           completedAt: n.completedAt || "",
-          note: n.note ? String(n.note).slice(0, 160) : ""
+          note: n.note ? String(n.note).slice(0, 160) : "",
+          // 折叠状态（可选字段）：存量数据无此字段 = 展开；true 才视为折叠
+          collapsed: n.collapsed === true,
+          // 任务类型：once=一次性（默认，存量数据无此字段一律按 once），daily=每日打卡
+          kind: n.kind === "daily" ? "daily" : "once"
         }));
         const finalNodes = finalizeNodes(nodes, data.nodeChecks);
         return {
@@ -662,7 +1229,7 @@
           seen.add(id);
           nodes.push({
             id, name: String(c.name || ""), parentId: c.parentId ? String(c.parentId) : null,
-            done: false, completedAt: ""
+            done: false, completedAt: "", kind: "once"
           });
         }
       }
@@ -676,7 +1243,8 @@
           parentId: it.categoryId ? String(it.categoryId) : null,
           done: false,
           completedAt: "",
-          note: it.note ? String(it.note).slice(0, 160) : ""
+          note: it.note ? String(it.note).slice(0, 160) : "",
+          kind: "once"
         });
       }
 
@@ -716,7 +1284,8 @@
     // ---------- 本地数据迁移 ----------
     // 用户树数据版本：已带此版本的本地数据不再迁移。
     const TREE_VERSION = 2;
-    // 用户树根节点 id（存在即说明本地已是用户树或包含用户后来添加的记录）
+    // 用户树根节点 id（旧版默认树「昆仑数模」的根；存在即说明本地已是用户树或
+    // 包含用户后来添加的记录，合规换新默认树时不覆盖这类数据）
     const USER_ROOT_ID = "nmwiyegtzm0v4";
     // 旧示例树的默认节点 id 集合（短视频 / 红包活动等）
     const LEGACY_SAMPLE_IDS = new Set([
@@ -879,13 +1448,20 @@
         linkDone: src.linkDone,
         nodeChecks: src.nodeChecks
       });
+      // 防御：daily 只允许叶子。树上后来长出子节点的 daily 节点在此降回 once，
+      // 其残留的按日记录会随 normalizeDailyChecks 的叶子过滤一并清掉。
+      const parentIds = new Set(tree.nodes.filter(n => n.parentId).map(n => n.parentId));
+      for (const n of tree.nodes) {
+        if (n.kind === "daily" && parentIds.has(n.id)) n.kind = "once";
+      }
       return {
         id: String(src.id || genCatalogId()),
         name: String(src.name || "未命名目录").slice(0, 40),
         archVersion: Number(src.archVersion) || 0,
         nodes: tree.nodes,
         links: tree.links,
-        linkDone: tree.linkDone
+        linkDone: tree.linkDone,
+        dailyChecks: normalizeDailyChecks(src.dailyChecks, tree.nodes)
       };
     }
 
@@ -1340,7 +1916,8 @@
           archVersion: NEURCROSS_ARCH_VERSION,
           nodes: cloneNeurCrossNodes(),
           links: NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b })),
-          linkDone: {}
+          linkDone: {},
+          dailyChecks: {}
         });
         return catalogs;
       }
@@ -1368,7 +1945,7 @@
     //   （含旧示例树丢弃逻辑），整包迁入第一个目录「默认目录」，并成为当前目录；
     // - 无数据：用户默认树包成第一个目录。
     function resolveCatalogState(raw) {
-      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [], neurCrossHidden: false };
+      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [], neurCrossHidden: false, calendarOpen: false };
       if (raw) {
         try {
           const data = JSON.parse(raw);
@@ -1392,7 +1969,9 @@
                 currentCatalogId: currentCatalogId,
                 sidebarOpen: data.sidebarOpen !== false,
                 catalogInserts: normalizeCatalogInserts(data.catalogInserts, catalogs),
-                neurCrossHidden: hidden
+                neurCrossHidden: hidden,
+                // 打卡日历面板开合持久化；默认收起，保证存量用户首屏与旧版一致
+                calendarOpen: data.calendarOpen === true
               });
             }
           }
@@ -1404,7 +1983,8 @@
         name: "默认目录",
         nodes: first.nodes,
         links: first.links,
-        linkDone: first.linkDone
+        linkDone: first.linkDone,
+        dailyChecks: {}
       };
       const catalogs = [cat];
       ensureNeurCrossCatalog(catalogs, false);
@@ -1417,7 +1997,10 @@
       try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
     };
     function load() { return resolveCatalogState(readStorage()); }
-    function save() {
+    function save(recordHistory) {
+      // 撤销/重做的入栈钩子：所有会落盘的变更默认同步记一步历史（快照=本次操作后的最终 state）。
+      // 撤销/重做自身与纯视图状态（侧栏折叠/展开）传 false 跳过，避免自我嵌套与噪声步。
+      if (recordHistory !== false) pushHistory();
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch (e) {
@@ -1437,9 +2020,88 @@
     Object.defineProperties(state, {
       nodes: { configurable: true, get: () => currentCatalog().nodes, set: v => { currentCatalog().nodes = v; } },
       links: { configurable: true, get: () => currentCatalog().links, set: v => { currentCatalog().links = v; } },
-      linkDone: { configurable: true, get: () => currentCatalog().linkDone, set: v => { currentCatalog().linkDone = v; } }
+      linkDone: { configurable: true, get: () => currentCatalog().linkDone, set: v => { currentCatalog().linkDone = v; } },
+      dailyChecks: { configurable: true, get: () => currentCatalog().dailyChecks, set: v => { currentCatalog().dailyChecks = v; } }
     });
     state.currentCatalogId = currentCatalog().id;
+
+    // ---------- 撤销 / 重做（历史栈） ----------
+    // 快照口径：「一次用户操作完成后」的最终 state，JSON 深拷贝（字符串形式入栈）。
+    // 关于 getter：state 上的 nodes/links/linkDone 是不可枚举访问器（见上方 defineProperties，
+    // JSON.stringify 只序列化可枚举自有属性，因此这三个键不会出现在快照 JSON 里）；
+    // 但它们的底层数据本来就存放在 state.catalogs[i].nodes/links/linkDone 中，
+    // 随整份 JSON 一起被深拷贝，所以快照内容是完整的。
+    // 恢复（restoreSnapshot）不替换 state 对象、也不重定义访问器：只把快照里的
+    // 各数据字段回写进同一个 state（Object.assign），访问器动态读取 state.catalogs，
+    // 自动指向恢复后的当前目录——等效于「刷新了 getter」，无需任何额外处理。
+    // sidebarOpen 是纯视图状态（侧栏折叠/展开不算变更）：快照剔除、恢复时保留现值。
+    const HISTORY_MAX = 31; // 栈深上限 = 基线快照 + 30 步操作（超出丢最旧）
+    let historyStack = [];   // 每步快照的 JSON 字符串；historyStack[historyIndex] 即当前状态
+    let historyIndex = -1;
+    const undoBtn = document.getElementById("undoBtn");
+    const redoBtn = document.getElementById("redoBtn");
+
+    function snapshotState() {
+      // replacer 返回 undefined 的键不会写入 JSON：借此把 sidebarOpen 排除出历史
+      return JSON.stringify(state, (k, v) => (k === "sidebarOpen" ? undefined : v));
+    }
+    function restoreSnapshot(json) {
+      const keepSidebarOpen = state.sidebarOpen;
+      // 快照不含 nodes/links/linkDone 键，Object.assign 不会碰这三个访问器；
+      // catalogs / currentCatalogId / catalogInserts / neurCrossHidden / treeVersion 整体回写
+      Object.assign(state, JSON.parse(json));
+      state.sidebarOpen = keepSidebarOpen;
+      if (!currentCatalog()) state.currentCatalogId = state.catalogs[0].id; // 防御：快照异常时回落
+    }
+    function updateHistoryUi() {
+      if (undoBtn) undoBtn.disabled = historyIndex <= 0;
+      if (redoBtn) redoBtn.disabled = historyIndex >= historyStack.length - 1;
+    }
+    function pushHistory() {
+      const snap = snapshotState();
+      // 状态没变就不入栈（如把节点拖回原父节点、同值提交）：保证「一次操作 = 一步历史」
+      if (historyIndex >= 0 && historyStack[historyIndex] === snap) return;
+      historyStack = historyStack.slice(0, historyIndex + 1); // 新操作会截断撤销后的重做分支
+      historyStack.push(snap);
+      if (historyStack.length > HISTORY_MAX) historyStack.shift(); // 超出上限丢最旧
+      historyIndex = historyStack.length - 1;
+      updateHistoryUi();
+    }
+    // 撤销/重做前先收掉可能悬着的编辑器与浮层，避免它们引用已被恢复掉的对象
+    function closeHistoryAdjacentUi() {
+      if (editor) closeEditor(false);
+      if (catalogRenameClose) catalogRenameClose(false);
+      closeMenu();
+      closeLinkMenu();
+      closeCatMenu();
+      if (linkMode) exitLinkMode();
+    }
+    function undoHistory() {
+      if (historyIndex <= 0) return false;
+      const beforeCatalogId = state.currentCatalogId;
+      closeHistoryAdjacentUi();
+      historyIndex--;
+      restoreSnapshot(historyStack[historyIndex]);
+      if (state.currentCatalogId !== beforeCatalogId) pendingAutoFit = true; // 跨目录恢复时重新 fit 视野
+      save(false); // 恢复结果落盘，但不再入栈
+      render();
+      updateHistoryUi();
+      return true;
+    }
+    function redoHistory() {
+      if (historyIndex >= historyStack.length - 1) return false;
+      const beforeCatalogId = state.currentCatalogId;
+      closeHistoryAdjacentUi();
+      historyIndex++;
+      restoreSnapshot(historyStack[historyIndex]);
+      if (state.currentCatalogId !== beforeCatalogId) pendingAutoFit = true;
+      save(false);
+      render();
+      updateHistoryUi();
+      return true;
+    }
+    if (undoBtn) undoBtn.addEventListener("click", undoHistory);
+    if (redoBtn) redoBtn.addEventListener("click", redoHistory);
 
     let pan = { x: 0, y: 0 };
     let scale = 1;
@@ -1488,12 +2150,15 @@
       visited.delete(startId);
       return [...visited];
     }
-    // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记
+    // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记。
+    // 每日打卡（daily）叶子不参与一次性批量完成/取消：它的完成态按日期记录在
+    // dailyChecks，不由 done/completedAt 承载（存量纯 once 树行为不变）。
     function setNodeDoneWithLeaves(nodeId, done, at, viaLink) {
       const when = done ? (at || nowCompletedAt()) : "";
       for (const lid of collectLeafIds(nodeId)) {
         const leaf = nodeById(lid);
         if (!leaf) continue;
+        if (leaf.kind === "daily") continue;
         if (done) {
           // 已完成的叶子保留原始完成时间：批量勾父分支不该把历史时间全部改成现在
           if (!leaf.done || !leaf.completedAt) leaf.completedAt = when;
@@ -1569,22 +2234,49 @@
       return latest;
     }
 
+    // 完成时间的时区标注：显示浏览器本地时区的短偏移（如 GMT+8），会话内不变；
+    // 读不出时留空，不影响原时间串显示。墙钟串本身不存时区（见 normalizeAt 注释）。
+    const TZ_LABEL = (function () {
+      try {
+        const parts = new Intl.DateTimeFormat("en-GB", { timeZoneName: "shortOffset" })
+          .formatToParts(new Date());
+        return (parts.find(p => p.type === "timeZoneName") || {}).value || "";
+      } catch (e) { return ""; }
+    })();
+
+    // 折叠徽章统计（纯遍历当前目录数据）：子树内「整枝完成」的节点数 / 节点总数。
+    // 与 catalogDoneStats 同口径（nodeDone 递归派生，不直接读分支自身 done）。
+    function subtreeDoneStats(node) {
+      let done = 0, total = 0;
+      (function walk(n) {
+        total++;
+        if (nodeDone(n)) done++;
+        for (const k of childNodes(n.id)) walk(k);
+      })(node);
+      return { done: done, total: total };
+    }
+
     function nodeBtnHtml(opts) {
       const toggleAttr = opts.toggle ? ` data-toggle="${escapeHtml(opts.id)}"` : "";
       const cls = [
         "node-btn",
+        opts.kind === "daily" ? "daily" : "",
         opts.toggle ? "toggle" : "",
         opts.done ? "done" : ""
       ].filter(Boolean).join(" ");
+      // 每日打卡节点带迷你徽标，一眼区分 once / daily
+      const badge = opts.kind === "daily"
+        ? '<span class="daily-badge" aria-hidden="true">每日</span>'
+        : "";
       const time = opts.done && opts.completedAt
-        ? `<span class="node-time">${escapeHtml(opts.completedAt)}</span>`
+        ? `<span class="node-time">${escapeHtml(opts.completedAt)}${TZ_LABEL ? " " + escapeHtml(TZ_LABEL) : ""}</span>`
         : "";
       const note = opts.note
         ? `<span class="node-note">${escapeHtml(opts.note)}</span>`
         : "";
       return `<button type="button" class="${cls}"${toggleAttr} title="${escapeHtml(opts.tip)}">
         <span class="node-dot"></span>
-        <span class="node-name">${escapeHtml(opts.name)}</span>
+        <span class="node-name">${escapeHtml(opts.name)}</span>${badge}
         <span class="state">${opts.done ? "✓" : ""}</span>
         ${time}
         ${note}
@@ -1596,9 +2288,27 @@
       const buildNode = (n, depth) => {
         const kids = childNodes(n.id);
         const leaf = kids.length === 0;
-        const done = nodeDone(n);
-        const completedAt = nodeCompletedAt(n);
-        const tip = leaf ? "末梢节点：点击切换完成，拖拽可调整层级，右键可增删改" : "分支节点：点击可批量切换下级，拖拽可调整层级，右键可增删改";
+        // 折叠的分支：子树不进布局/渲染（children 剪空），节点本体保留并显示徽章
+        const collapsed = !leaf && n.collapsed === true;
+        // 显示口径：daily 叶子按「当前选中日期」取打卡记录（切日期只影响 daily），
+        // once 叶子/分支沿用原有 done 聚合，行为与基线完全一致
+        const done = displayDone(n);
+        const completedAt = displayCompletedAt(n);
+        const tip = leaf && n.kind === "daily"
+          ? "每日打卡节点：点击在日历选中的日期打卡/取消（过去可补签，未来不可打卡）"
+          : (leaf ? "末梢节点：点击切换完成，拖拽可调整层级，右键可增删改" : "分支节点：点击可批量切换下级，拖拽可调整层级，右键可增删改");
+        // 搜索文本（小写）：名称 + 说明一起参与匹配
+        const searchText = (n.name + " " + (n.note || "")).toLowerCase();
+        let extra = "";
+        if (!leaf) {
+          // 折叠/展开小箭头（绝对定位在胶囊左侧，不占布局、不影响卡片测量）
+          extra += '<button type="button" class="node-fold' + (collapsed ? " collapsed" : "") + '" data-fold="' + escapeHtml(n.id) + '" aria-expanded="' + (collapsed ? "false" : "true") + '" title="' + (collapsed ? "展开子节点" : "折叠子节点") + '" aria-label="' + (collapsed ? "展开子节点" : "折叠子节点") + '">' + (collapsed ? "▸" : "▾") + "</button>";
+        }
+        if (collapsed) {
+          // 徽章：已完成数/总数；全部完成 = 绿色实线（all-done）
+          const stats = subtreeDoneStats(n);
+          extra += '<span class="node-fold-badge' + (stats.done === stats.total ? " all-done" : "") + '" aria-label="子树已完成 ' + stats.done + "/" + stats.total + '">' + stats.done + "/" + stats.total + "</span>";
+        }
         return {
           nid: "n" + (++uid),
           depth,
@@ -1608,8 +2318,9 @@
           leafKind: leaf ? (depth >= 3 ? "param" : "std") : "",
           refId: n.id,
           draggable: true,
-          html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, note: n.note || "", toggle: true, tip }),
-          children: kids.map(k => buildNode(k, depth + 1))
+          searchText: searchText,
+          html: extra + nodeBtnHtml({ id: n.id, name: n.name, kind: n.kind || "once", done, completedAt, note: n.note || "", toggle: true, tip }),
+          children: collapsed ? [] : kids.map(k => buildNode(k, depth + 1))
         };
       };
 
@@ -1621,6 +2332,7 @@
         ntype: "root",
         refId: "",
         draggable: false,
+        searchText: "全部项目",
         html: nodeBtnHtml({ id: "", name: "全部项目", done: rDone, completedAt: rootCompletedAt(), toggle: false, tip: "根节点：可拖入任意分支将其升为一级，右键可新增一级分支" }),
         children: childNodes(null).map(k => buildNode(k, 1))
       };
@@ -1630,6 +2342,7 @@
       const box = document.getElementById("catTree");
       if (!box) return;
       box.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${scale})`;
+      updateZoomLabel(); // 工具条缩放百分比显示随每次平移/缩放刷新
       scheduleViewportUpdate(); // 平移/缩放后补画视野附近的节点与连线（rAF 节流）
     }
 
@@ -1735,7 +2448,7 @@
       for (const e of edges) {
         if (!e.d) continue;
         if (!(nodeInView(e.from, view) && nodeInView(e.to, view))) continue;
-        parts.push(`<path class="mindmap-branch" d="${e.d}" fill="${e.to.done ? DONE_HEX : TODO_HEX}" />`);
+        parts.push(`<path class="mindmap-branch" d="${e.d}" fill="${e.to.done ? DONE_HEX : TODO_HEX}" data-x1="${e.x1 != null ? e.x1.toFixed(1) : ""}" data-x2="${e.x2 != null ? e.x2.toFixed(1) : ""}" />`);
       }
 
       // 连线只存节点 id：每帧用「当前 cardRects」的 ra/rb 现算接驳点与曲线
@@ -2107,6 +2820,7 @@
                data-ntype="${n.ntype}"
                data-leaf="${n.leafKind || ""}"
                data-ref="${escapeHtml(n.refId)}"
+               data-search="${escapeHtml(n.searchText || "")}"
                draggable="${n.draggable ? "true" : "false"}"
                style="left:${n.x}px; top:${n.y}px;">
             ${n.html}
@@ -2168,6 +2882,9 @@
         }
       }
 
+      // 搜索/筛选是会话内状态：树重画后按当前关键词与开关重新打标（不动布局）
+      applySearchFilter();
+
       // 切目录 / 首次打开：先用第一遍布局的粗略高度预 fit 一帧，
       // 避免「1:1 顶对齐」那一帧把巨树顶端整个画出来
       if (pendingAutoFit) applyFitView();
@@ -2194,16 +2911,31 @@
           if (timeEl) extra += param ? 11 : 13;
           if (noteEl) extra += noteEl.offsetHeight + (param ? 2 : (timeEl ? 10 : 2));
           n.rowH = Math.max(floor, btn.offsetHeight + extra);
+          // 防重叠（长文本回归）：记录胶囊高与「胶囊下方悬垂内容」高度。
+          // 行内节点原来以 rowH/2 居中，而说明小字/完成时间只向下悬垂，
+          // 居中会把悬垂挤出本行底缘压到下一行卡片（基线在 50+ 节点、
+          // 含 30 字长标题的树上出现 X_3&X_4 相邻卡片重叠）。
+          let belowH = 0;
+          if (timeEl) belowH = 2 + timeEl.offsetHeight;
+          if (noteEl) {
+            const noteGap = param ? (timeEl ? 11 : 2) : (timeEl ? 14 : 3);
+            belowH = Math.max(belowH, noteGap + noteEl.offsetHeight);
+          }
+          n.btnH = btn.offsetHeight;
+          n.belowH = belowH;
         }
         (function stackY(node, yStart) {
           if (!node.children.length) {
             node.spanH = node.rowH;
-            node.y = yStart + node.rowH / 2;
+            // 叶子：内容顶对齐行顶（y 为胶囊中心，translateY(-50%) 后胶囊顶≈行顶），
+            // 说明/时间悬垂落在本行剩余空间内，不再侵入下一行卡片
+            node.y = yStart + (node.btnH || node.rowH) / 2;
             return;
           }
           let cy = yStart;
           for (const ch of node.children) { stackY(ch, cy); cy += ch.spanH; }
-          const span = Math.max(cy - yStart, node.rowH);
+          // 分支仍居中，但 span 至少预留 胶囊高 + 2×悬垂，保证悬垂不出本行
+          const span = Math.max(cy - yStart, node.rowH, (node.btnH || 0) + 2 * (node.belowH || 0));
           node.spanH = span;
           node.y = yStart + span / 2;
         })(root, PAD_Y_TREE);
@@ -2307,6 +3039,9 @@
             { x: midX, y: y2 }, { x: x2, y: y2 },
             BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
           );
+          // 记录中心线端点 x（验收断言「起点 x < 终点 x」用，不参与绘制）
+          e.x1 = x1;
+          e.x2 = x2;
           branchCorridors.push(rlRect(
             Math.min(x1, x2), Math.min(y1, y2),
             Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
@@ -2325,9 +3060,320 @@
       });
     }
 
+    /* ==== DAILY-CHECKIN-START ====（日历 ↔ 任务打卡 双模式） ==== */
+    // 当前查看的日期：浏览器本地时区 YYYY-MM-DD（todayIso 用本地 getFullYear/getMonth/getDate，
+    // 不写死任何时区）。daily 节点的显示/打卡都以它为准；once 节点完全不受它影响。
+    let selectedDate = todayIso();
+    // 日历面板当前显示的年月 { y, m }（m 为 0 基），独立于 selectedDate 可前后翻月
+    let calView = null;
+
+    function calEnsureView() {
+      if (calView) return;
+      const parts = selectedDate.split("-");
+      calView = { y: +parts[0], m: +parts[1] - 1 };
+    }
+
+    // 当前目录里的 daily 叶子节点（daily 只允许叶子；分支已在 normalize 降回 once）
+    function dailyLeafNodes() {
+      return state.nodes.filter(n => n.kind === "daily" && !childNodes(n.id).length);
+    }
+    function dailyChecksOf() {
+      const cat = currentCatalog();
+      return (cat && cat.dailyChecks) || {};
+    }
+    function dailyCheckedOn(dateStr, id) {
+      const rec = dailyChecksOf()[dateStr];
+      return !!(rec && rec[id] && rec[id].done);
+    }
+    // 某日期的 daily 完成度 { done, total }：total = 当前 daily 叶子总数（当前任务集口径）
+    function dailyStatsFor(dateStr) {
+      const leaves = dailyLeafNodes();
+      const rec = dailyChecksOf()[dateStr] || {};
+      let done = 0;
+      for (const n of leaves) if (rec[n.id] && rec[n.id].done) done++;
+      return { done: done, total: leaves.length };
+    }
+    // 连续打卡 Streak：以「当前目录 daily 任务全部完成」为口径，从今天往回连续计数；
+    // 今天尚未全完时不打断链（从昨天起算），昨天往前断了即停。
+    // 目录里没有 daily 任务时恒为 0；上限两年，防脏数据长循环。
+    function dailyStreak() {
+      const t = dailyStatsFor(todayIso());
+      if (!t.total) return 0;
+      let streak = 0;
+      const cur = new Date();
+      if (t.done < t.total) cur.setDate(cur.getDate() - 1);
+      for (let i = 0; i < 730; i++) {
+        const s = dailyStatsFor(iso(cur));
+        if (s.total && s.done >= s.total) streak++;
+        else break;
+        cur.setDate(cur.getDate() - 1);
+      }
+      return streak;
+    }
+    // 打卡时刻显示：记录里存 ISO 串，展示时转浏览器本地墙上时间
+    function fmtDailyAt(at) {
+      const d = new Date(at);
+      if (!at || isNaN(d.getTime())) return "";
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+        " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    }
+    // 显示口径的完成态：daily 叶子看选中日期的打卡记录；once 叶子/分支沿用原聚合
+    function displayDone(node) {
+      if (!node) return false;
+      const kids = childNodes(node.id);
+      if (kids.length) return kids.every(displayDone);
+      if (node.kind === "daily") return dailyCheckedOn(selectedDate, node.id);
+      return !!node.done;
+    }
+    function displayCompletedAt(node) {
+      if (!node || !displayDone(node)) return "";
+      const kids = childNodes(node.id);
+      if (kids.length) {
+        let latest = "";
+        for (const k of kids) {
+          const t = displayCompletedAt(k);
+          if (t > latest) latest = t;
+        }
+        return latest;
+      }
+      if (node.kind === "daily") {
+        const rec = (dailyChecksOf()[selectedDate] || {})[node.id];
+        return rec && rec.at ? fmtDailyAt(rec.at) : selectedDate;
+      }
+      return node.completedAt || "";
+    }
+    // 批量完成/取消只看 once 叶子（daily 叶子按日期走，不随分支批量切换）。
+    // 纯 once 树上与原 nodeDone 判定等价。
+    function onceLeavesAllDone(nodeId) {
+      return collectLeafIds(nodeId).every(lid => {
+        const leaf = nodeById(lid);
+        return (!leaf || leaf.kind === "daily") ? true : !!leaf.done;
+      });
+    }
+    // 清掉空日期键，保持 localStorage 里不堆积 {}
+    function cleanEmptyDailyDates(dc) {
+      const out = {};
+      for (const d of Object.keys(dc || {})) {
+        const rec = dc[d];
+        if (rec && Object.keys(rec).length) out[d] = rec;
+      }
+      return out;
+    }
+
+    // 每日打卡节点的点击：在选中日期上打卡/取消。过去日期 = 补签，未来日期禁止。
+    function handleDailyToggle(nodeId) {
+      const today = todayIso();
+      if (selectedDate > today) {
+        showLinkHint("未来日期不能提前打卡，请选择今天或更早的日期", false);
+        return;
+      }
+      const cat = currentCatalog();
+      const rec = cat.dailyChecks[selectedDate] || {};
+      if (rec[nodeId] && rec[nodeId].done) {
+        delete rec[nodeId];
+        if (!Object.keys(rec).length) delete cat.dailyChecks[selectedDate];
+        else cat.dailyChecks[selectedDate] = rec;
+        showLinkHint("已取消 " + selectedDate + " 的打卡", false);
+      } else {
+        rec[nodeId] = { done: true, at: new Date().toISOString() };
+        cat.dailyChecks[selectedDate] = rec;
+        showLinkHint("已在 " + selectedDate + " 打卡", false);
+      }
+      save();
+      render();
+    }
+
+    // 右键「设为每日打卡 / 改为长期任务」：只对叶子开放（分支/根在菜单里禁用/隐藏）
+    function toggleNodeKind(nodeId) {
+      const node = nodeById(nodeId);
+      if (!node) return;
+      if (childNodes(node.id).length) {
+        showLinkHint("分支节点不能设为每日打卡", false);
+        return;
+      }
+      const cat = currentCatalog();
+      if (node.kind === "daily") {
+        node.kind = "once";
+        // 改回长期任务：按日记录随之失效，立即清掉（normalize 也会兜底）
+        for (const rec of Object.values(cat.dailyChecks || {})) delete rec[nodeId];
+        cat.dailyChecks = cleanEmptyDailyDates(cat.dailyChecks);
+      } else {
+        node.kind = "daily";
+        // 设为每日打卡：一次性完成态让位给按日记录，从选中日期开始重新计数
+        node.done = false;
+        node.completedAt = "";
+      }
+      delete state.linkDone[nodeId]; // 联动完成标记对 daily 无意义，切类时清掉
+      save();
+      render();
+    }
+
+    // ---------- 日历面板渲染 ----------
+    const CAL_WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+    // 完成率热力：0% → 近乎透明的浅绿，100% → 深强调色（.full 再叠实心底色），
+    // 色相取自 --accent (#1f6b4a)
+    function calHeatBg(rate) {
+      return "rgba(31, 107, 74, " + (0.05 + 0.32 * rate).toFixed(3) + ")";
+    }
+
+    function renderCalendarPanel() {
+      const aside = document.getElementById("dailyAside");
+      const rail = document.getElementById("dailyRail");
+      if (!aside || !rail) return;
+      const open = state.calendarOpen === true;
+      aside.classList.toggle("collapsed", !open);
+      rail.hidden = open;
+      if (!open) return;
+      calEnsureView();
+      document.getElementById("calMonthLabel").textContent =
+        calView.y + "年" + (calView.m + 1) + "月";
+      const week = document.getElementById("calWeekRow");
+      if (!week.childElementCount) {
+        week.innerHTML = CAL_WEEKDAYS.map(w => "<span>" + w + "</span>").join("");
+      }
+      const today = todayIso();
+      const lead = new Date(calView.y, calView.m, 1).getDay();
+      const days = new Date(calView.y, calView.m + 1, 0).getDate();
+      const parts = [];
+      for (let i = 0; i < lead; i++) parts.push('<span class="cal-cell blank"></span>');
+      for (let d = 1; d <= days; d++) {
+        const ds = calView.y + "-" + pad(calView.m + 1) + "-" + pad(d);
+        const st = dailyStatsFor(ds);
+        const rate = st.total ? st.done / st.total : 0;
+        const cls = ["cal-cell"];
+        if (ds === today) cls.push("today");
+        if (ds === selectedDate) cls.push("selected");
+        if (ds > today) cls.push("future");
+        if (st.total && st.done >= st.total) cls.push("full");
+        const style = st.total ? ' style="background:' + calHeatBg(rate) + '"' : "";
+        parts.push(
+          '<button type="button" class="' + cls.join(" ") + '" data-date="' + ds + '"' + style +
+          ' title="' + ds + ' 完成 ' + st.done + '/' + st.total + '">' +
+          '<span class="cal-day">' + d + '</span>' +
+          (st.total ? '<span class="cal-frac">' + st.done + '/' + st.total + '</span>' : '') +
+          '</button>'
+        );
+      }
+      document.getElementById("calGrid").innerHTML = parts.join("");
+      const streak = dailyStreak();
+      const t = dailyStatsFor(today);
+      const sel = dailyStatsFor(selectedDate);
+      document.getElementById("dailyStats").innerHTML =
+        '<div class="daily-stat"><span class="daily-stat-label">连续打卡 Streak</span>' +
+        '<span class="daily-stat-val">' + streak + ' 天</span></div>' +
+        '<div class="daily-stat"><span class="daily-stat-label">今日完成率</span>' +
+        '<span class="daily-stat-val">' + (t.total ? Math.round(t.done / t.total * 100) + "%" : "—") + '</span></div>' +
+        '<div class="daily-stat"><span class="daily-stat-label">选中 ' + selectedDate + '</span>' +
+        '<span class="daily-stat-val">' + (sel.total ? sel.done + "/" + sel.total : "—") + '</span></div>';
+    }
+
+    // 侧栏底部迷你统计：仅当前目录存在 daily 任务时才挂载节点，
+    // 存量（无 daily）数据下侧栏 DOM 与旧版逐字节一致
+    function updateDailyMiniStats() {
+      const foot = document.querySelector(".catalog-side-foot");
+      if (!foot) return;
+      const host = document.getElementById("dailyMiniStats");
+      if (!dailyLeafNodes().length) {
+        if (host) host.remove();
+        return;
+      }
+      const el = host || foot.insertBefore(Object.assign(document.createElement("div"), {
+        id: "dailyMiniStats", className: "daily-mini-stats"
+      }), foot.firstChild);
+      const t = dailyStatsFor(todayIso());
+      el.textContent = "连续打卡 " + dailyStreak() + " 天 · 今日 " + t.done + "/" + t.total;
+    }
+    /* ==== DAILY-CHECKIN-END ==== */
+
     function render() {
       renderCatalogList();
       renderTree();
+      renderCalendarPanel();
+      updateDailyMiniStats();
+    }
+
+    /* ==== CANVAS-CONTROLS（画布控制：折叠/展开、搜索筛选、缩放工具条） ==== */
+
+    // ---------- 节点折叠 / 展开 ----------
+    // 折叠状态是节点可选字段 collapsed（持久化，存量数据无字段 = 展开）。
+    // 折叠后子树在 buildMindData 里就被剪掉：不进 allNodes / cardRects / edges，
+    // 分支不画；指向子树内节点的任务连线因找不到端点卡片自动不画。
+    function toggleCollapse(nodeId) {
+      const node = nodeById(nodeId);
+      if (!node || !childNodes(node.id).length) return; // 叶子/虚拟根不可折叠
+      node.collapsed = !(node.collapsed === true);
+      save();
+      renderTree(); // 折叠只改树形态：侧栏无需重绘
+    }
+
+    // 一键全部展开：清掉当前目录所有节点的 collapsed
+    function expandAllCollapsed() {
+      let changed = false;
+      for (const n of state.nodes) {
+        if (n.collapsed === true) { n.collapsed = false; changed = true; }
+      }
+      if (changed) { save(); renderTree(); }
+    }
+
+    // ---------- 搜索与筛选（会话内状态，不持久化） ----------
+    let searchKeyword = "";
+    let filterUndoneOnly = false;
+
+    // 按 DOM 上的 data-search（名称+说明，小写）打标：命中高亮、未命中淡化；
+    // 「只看未完成」时已完成的叶子淡化（分支照常）。只改 class，不动布局/虚拟化。
+    function applySearchFilter() {
+      const kw = searchKeyword.trim().toLowerCase();
+      let hitCount = 0;
+      catTree.querySelectorAll(".mm-node").forEach(el => {
+        const hit = !!kw && (el.dataset.search || "").includes(kw);
+        if (hit) hitCount++;
+        el.classList.toggle("search-hit", hit);
+        el.classList.toggle("search-dim", !!kw && !hit);
+        const btn = el.querySelector(".node-btn");
+        const doneLeaf = filterUndoneOnly && el.dataset.ntype === "node" &&
+          !!el.dataset.leaf && btn && btn.classList.contains("done");
+        el.classList.toggle("done-dim", doneLeaf);
+      });
+      updateSearchCount(hitCount, !!kw);
+    }
+
+    function updateSearchCount(hitCount, active) {
+      const el = document.getElementById("searchCount");
+      if (!el) return;
+      el.hidden = !active;
+      el.textContent = active ? (hitCount + " 处") : "";
+    }
+
+    // ---------- 悬浮工具条缩放 ----------
+    // 以 (mx,my)（屏幕坐标）为锚点把缩放设为 next；pan 在 scale 之前平移，
+    // 与滚轮缩放同一套数学，保证锚点内容保持在鼠标/视口中心下方
+    function zoomTo(next, mx, my) {
+      next = Math.min(ZOOM_MAX, Math.max(zoomMin, next));
+      if (next === scale) { updateZoomLabel(); return; }
+      const cx = (mx - pan.x) / scale;
+      const cy = (my - pan.y) / scale;
+      scale = next;
+      pan.x = mx - cx * scale;
+      pan.y = my - cy * scale;
+      clampPan();
+      applyPan();
+    }
+    // 工具条按钮以舞台中心为锚点缩放
+    function zoomAtCenter(next) {
+      const rect = mindmapStage.getBoundingClientRect();
+      zoomTo(next, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+
+    // 缩放百分比显示（点击回 100%）：applyPan 每帧调用，值未变时跳过写 DOM
+    let lastZoomPct = -1;
+    function updateZoomLabel() {
+      const el = document.getElementById("zoomLabelBtn");
+      if (!el) return;
+      const pct = Math.round(scale * 100);
+      if (pct === lastZoomPct) return;
+      lastZoomPct = pct;
+      el.textContent = pct + "%";
+      el.setAttribute("aria-label", "当前缩放 " + pct + "%，点击恢复 100%");
     }
 
     // ---------- 树点击交互 ----------
@@ -2479,6 +3525,8 @@
         exitLinkMode("已取消连线操作");
       }
       if (e.key === "Escape") {
+        if (!mmModal.hidden) { e.preventDefault(); closeMmModal(false); } // 自定义弹窗按 Esc = 取消
+        if (!touchSheet.hidden) { e.preventDefault(); closeTouchSheet(); }
         if (!ctxMenu.hidden) { e.preventDefault(); closeMenu(); }
         if (!linkCtxMenu.hidden) { e.preventDefault(); closeLinkMenu(); }
         if (!catCtxMenu.hidden) { e.preventDefault(); closeCatMenu(); }
@@ -2502,9 +3550,230 @@
         e.preventDefault();
         const refId = ctxTarget.refId;
         closeMenu();
-        deleteNode(refId, true); // 无确认删除该节点（绕过 confirm）
+        deleteNode(refId, true); // 无确认删除该节点（绕过确认弹窗）
       }
     });
+
+    // ---------- 撤销 / 重做快捷键 ----------
+    // Ctrl/Cmd+Z 撤销；Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做。
+    // 输入框（节点改名 / 新增分支 / 说明 / 目录改名）聚焦时不拦截，交给浏览器原生文本编辑。
+    document.addEventListener("keydown", e => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = (e.key || "").toLowerCase();
+      const wantUndo = key === "z" && !e.shiftKey;
+      const wantRedo = (key === "z" && e.shiftKey) || key === "y";
+      if (!wantUndo && !wantRedo) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      if (wantUndo) undoHistory();
+      else redoHistory();
+    });
+    // ---------- 自定义 Modal / Toast（替代原生 confirm/alert；桌面与触屏同一套） ----------
+    const mmModal = document.getElementById("mmModal");
+    const mmModalOk = document.getElementById("mmModalOk");
+    let mmModalResolve = null;
+
+    // confirmDialog(msg) → Promise<boolean>：确认 true / 取消·Esc·点遮罩 false。
+    // 删除类操作默认「危险色确认」按钮（红色实底），语义与原生 confirm 一致。
+    function confirmDialog(msg, opts) {
+      opts = opts || {};
+      return new Promise(resolve => {
+        if (!mmModal.hidden && mmModalResolve) mmModalResolve(false); // 旧弹窗让位
+        mmModalResolve = resolve;
+        document.getElementById("mmModalTitle").textContent = opts.title || "确认操作";
+        document.getElementById("mmModalBody").textContent = msg;
+        mmModalOk.textContent = opts.confirmText || "确定";
+        mmModalOk.className = opts.danger === false ? "ok" : "danger";
+        mmModal.hidden = false;
+      });
+    }
+    function closeMmModal(ok) {
+      if (mmModal.hidden) return;
+      mmModal.hidden = true;
+      const r = mmModalResolve;
+      mmModalResolve = null;
+      if (r) r(!!ok);
+    }
+    document.getElementById("mmModalCancel").addEventListener("click", () => closeMmModal(false));
+    mmModalOk.addEventListener("click", () => closeMmModal(true));
+    mmModal.addEventListener("click", e => { if (e.target === mmModal) closeMmModal(false); });
+
+    const mmToastEl = document.getElementById("mmToast");
+    let mmToastTimer = null;
+    // showToast(msg, "success" | "error")：2.5s 自动消失
+    function showToast(msg, kind) {
+      mmToastEl.textContent = msg;
+      mmToastEl.className = "mm-toast" + (kind === "success" ? " success" : kind === "error" ? " error" : "");
+      mmToastEl.hidden = false;
+      clearTimeout(mmToastTimer);
+      mmToastTimer = setTimeout(() => { mmToastEl.hidden = true; }, 2500);
+    }
+
+    // ---------- 触屏长按 → 底部操作抽屉（Action Sheet） ----------
+    const touchSheet = document.getElementById("touchSheet");
+    const touchSheetMask = document.getElementById("touchSheetMask");
+    let sheetCtx = null; // { type: "node", refId, unpinTarget } | { type: "blank" } | { type: "link", a, b }
+
+    // 与桌面右键菜单同一套动作分发，保证行为语义一致
+    function runNodeAction(act, refId, unpinTarget) {
+      if (act === "add") startAddEditor(refId || null);
+      else if (act === "rename") startRenameEditor(refId);
+      else if (act === "note") startNoteEditor(refId);
+      else if (act === "delete") deleteNode(refId);
+      else if (act === "link") enterLinkMode(refId, "add");
+      else if (act === "unlink") {
+        const ls = linksOf(refId);
+        if (ls.length === 1) {
+          removeLinkBetween(refId, otherEndOf(ls[0], refId));
+          render();
+        } else {
+          enterLinkMode(refId, "remove");
+        }
+      } else if (act === "unpin") {
+        state.catalogInserts = state.catalogInserts.filter(ins =>
+          !(ins.catalog === state.currentCatalogId && ins.node === refId &&
+            (!unpinTarget || ins.target === unpinTarget))
+        );
+        save();
+        renderTree();
+      }
+    }
+    function openTouchSheet(title, actions, ctx) {
+      sheetCtx = ctx;
+      document.getElementById("touchSheetTitle").textContent = title;
+      const box = document.getElementById("touchSheetActions");
+      box.innerHTML = "";
+      for (const a of actions) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.dataset.act = a.act;
+        b.textContent = a.label;
+        if (a.danger) b.className = "danger";
+        box.appendChild(b);
+      }
+      touchSheet.hidden = false;
+      touchSheetMask.hidden = false;
+    }
+    function closeTouchSheet() {
+      touchSheet.hidden = true;
+      touchSheetMask.hidden = true;
+      sheetCtx = null;
+    }
+    touchSheet.addEventListener("click", e => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const ctx = sheetCtx;
+      closeTouchSheet();
+      if (!ctx) return;
+      if (ctx.type === "link") {
+        if (btn.dataset.act === "delete-link") { removeLinkBetween(ctx.a, ctx.b); render(); }
+        return;
+      }
+      if (ctx.type === "blank") {
+        if (btn.dataset.act === "add-root") startAddEditor(null);
+        return;
+      }
+      runNodeAction(btn.dataset.act, ctx.refId, ctx.unpinTarget || "");
+    });
+    document.getElementById("touchSheetCancel").addEventListener("click", closeTouchSheet);
+    touchSheetMask.addEventListener("click", closeTouchSheet);
+
+    // 节点长按抽屉：可见项与桌面右键菜单完全一致（虚拟根只留新增分支）
+    function openNodeTouchSheet(nodeEl, logoTarget) {
+      const isRoot = nodeEl.dataset.ntype === "root";
+      const refId = nodeEl.dataset.ref || "";
+      const hasLinks = !isRoot && !!refId && linksOf(refId).length > 0;
+      const node = refId ? nodeById(refId) : null;
+      const actions = [{ act: "add", label: "新增子分支" }];
+      if (!isRoot) {
+        actions.push({ act: "rename", label: "重命名" });
+        actions.push({ act: "note", label: (node && node.note) ? "编辑说明" : "说明" });
+        actions.push({ act: "link", label: "连线" });
+      }
+      if (hasLinks) actions.push({ act: "unlink", label: "取消连线" });
+      const inserts = (!isRoot && refId)
+        ? state.catalogInserts.filter(ins =>
+            ins.catalog === state.currentCatalogId && ins.node === refId &&
+            (!logoTarget || ins.target === logoTarget))
+        : [];
+      if (inserts.length) {
+        const targetCat = state.catalogs.find(c => c.id === inserts[0].target);
+        actions.push({
+          act: "unpin",
+          label: inserts.length > 1
+            ? "移除目录标识（" + inserts.length + "）"
+            : "移除目录标识" + (targetCat ? "「" + targetCat.name + "」" : "")
+        });
+      }
+      if (!isRoot) actions.push({ act: "delete", label: "删除", danger: true });
+      openTouchSheet(node ? node.name : "节点操作", actions, { type: "node", refId, unpinTarget: logoTarget });
+    }
+
+    // 长按检测：仅 pointerType === "touch"；按住 ≥500ms 且位移 ≤10px 触发
+    const LONG_PRESS_MS = 500;
+    const LONG_PRESS_SLOP = 10;
+    let longPressTimer = null;
+    let longPressInfo = null;
+    let lastTouchAt = 0; // 最近一次触屏交互时间：用于吞掉长按引出的系统 contextmenu
+    function markTouchActive() { lastTouchAt = Date.now(); }
+    function cancelLongPress() {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      longPressInfo = null;
+    }
+    mindmapStage.addEventListener("pointerdown", e => {
+      cancelLongPress();
+      swallowNextClick = false; // 新手势开始，清掉可能残留的吞点击标记
+      if (e.pointerType !== "touch") return;
+      markTouchActive();
+      if (e.target.closest(".node-inline-input, .node-note-edit, .mm-inline-add, .ctx-menu, .touch-sheet, .mm-modal")) return;
+      longPressInfo = { x: e.clientX, y: e.clientY, target: e.target };
+      longPressTimer = setTimeout(fireLongPress, LONG_PRESS_MS);
+    }, true);
+    mindmapStage.addEventListener("pointermove", e => {
+      if (!longPressInfo) return;
+      if (Math.hypot(e.clientX - longPressInfo.x, e.clientY - longPressInfo.y) > LONG_PRESS_SLOP) cancelLongPress();
+    }, true);
+    mindmapStage.addEventListener("pointerup", e => {
+      if (e.pointerType === "touch") markTouchActive();
+      cancelLongPress();
+    }, true);
+    mindmapStage.addEventListener("pointercancel", cancelLongPress, true);
+
+    // 长按开始（弹抽屉）后吞掉随后的一次 click：轻点=打卡，绝不能被长按误触
+    let swallowNextClick = false;
+    document.addEventListener("click", e => {
+      if (!swallowNextClick) return;
+      swallowNextClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
+    function fireLongPress() {
+      const info = longPressInfo;
+      longPressInfo = null;
+      if (!info) return;
+      markTouchActive();
+      if (panDrag && !panDrag.moved) endPan(null); // 长按不再当平移
+      swallowNextClick = true;
+      suppressNextTreeClick = true;
+      const el = info.target;
+      const hitLink = el.closest ? el.closest(".mindmap-link-hit") : null;
+      if (hitLink && hitLink.dataset.linkA && hitLink.dataset.linkB) {
+        openTouchSheet("任务连线", [{ act: "delete-link", label: "删除该连线", danger: true }],
+          { type: "link", a: hitLink.dataset.linkA, b: hitLink.dataset.linkB });
+        return;
+      }
+      const nodeEl = el.closest ? el.closest(".mm-node") : null;
+      if (nodeEl) {
+        const logoEl = el.closest(".catalog-logo");
+        openNodeTouchSheet(nodeEl, logoEl && logoEl.dataset.catalogTarget ? logoEl.dataset.catalogTarget : "");
+        return;
+      }
+      if (linkMode) { exitLinkMode("已取消连线操作"); return; }
+      // 点空白处长按：新增一级分支（与桌面右键空白语义一致）
+      openTouchSheet("空白处", [{ act: "add-root", label: "新增一级分支" }], { type: "blank" });
+    }
 
     function openMenu(e, nodeEl) {
       e.preventDefault();
@@ -2543,6 +3812,20 @@
         unpinBtn.textContent = inserts.length > 1
           ? "移除目录标识（" + inserts.length + "）"
           : "移除目录标识" + (targetCat ? "「" + targetCat.name + "」" : "");
+      }
+      // 设为每日打卡 / 改为长期任务：根（虚拟节点）隐藏；分支禁用（完成态由子节点派生）
+      const kindBtn = ctxMenu.querySelector('[data-act="kind"]');
+      kindBtn.hidden = isRoot || !ctxTarget.refId;
+      if (!kindBtn.hidden) {
+        const kn = ctxTarget.refId ? nodeById(ctxTarget.refId) : null;
+        const isBranch = kn ? childNodes(kn.id).length > 0 : false;
+        kindBtn.disabled = isBranch;
+        kindBtn.textContent = kn && kn.kind === "daily" ? "改为长期任务" : "设为每日打卡";
+        kindBtn.title = isBranch
+          ? "分支节点不能设为每日打卡"
+          : (kn && kn.kind === "daily"
+              ? "恢复为一次性任务，并清空其按日打卡记录"
+              : "按本地日历逐日打卡，可在日历面板给过去日期补签");
       }
       ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
       ctxMenu.hidden = false;
@@ -2591,9 +3874,21 @@
             done: false,
             completedAt: ""
           });
-          // 父节点从叶子变成分支：清掉它作为叶子时的 done，否则下次加载会把它下推给新子节点
+          // 父节点从叶子变成分支：清掉它作为叶子时的 done，否则下次加载会把它下推给新子节点；
+          // daily 只允许叶子，长出子节点的同时降回 once（其按日记录按失效处理）
           const parent = ed.parentId ? nodeById(ed.parentId) : null;
-          if (parent) { parent.done = false; parent.completedAt = ""; }
+          if (parent) {
+            parent.done = false;
+            parent.completedAt = "";
+            // 往折叠中的分支里加子节点：自动展开，否则新节点不可见
+            if (parent.collapsed === true) parent.collapsed = false;
+            // daily 只允许叶子：长出子节点的同时降回 once（其按日记录按失效处理）
+            if (parent.kind === "daily") {
+              parent.kind = "once";
+              for (const rec of Object.values(currentCatalog().dailyChecks || {})) delete rec[parent.id];
+              currentCatalog().dailyChecks = cleanEmptyDailyDates(currentCatalog().dailyChecks);
+            }
+          }
           save();
         }
         render();
@@ -2700,8 +3995,16 @@
         const msg = kids.length
           ? `「${node.name}」下的子分支将升到上一级，完成状态保留。确定删除？`
           : `确定删除「${node.name}」？`;
-        if (!confirm(msg)) return;
+        // 自定义确认弹窗（Promise 化）替代原生 confirm：取消则不删
+        confirmDialog(msg, { title: "删除节点", confirmText: "删除" })
+          .then(ok => { if (ok) doDeleteNode(nodeId); });
+        return;
       }
+      doDeleteNode(nodeId);
+    }
+    function doDeleteNode(nodeId) {
+      const node = nodeById(nodeId);
+      if (!node) return;
       const newParent = node.parentId || null;
       for (const n of state.nodes) {
         if (n.parentId === node.id) n.parentId = newParent;
@@ -2721,11 +4024,25 @@
       state.catalogInserts = state.catalogInserts.filter(
         ins => !(ins.catalog === state.currentCatalogId && ins.node === node.id)
       );
+      // 删除的是每日打卡节点时，顺手清掉它在 dailyChecks 里的按日记录（normalize 也会兜底）
+      const dc = currentCatalog().dailyChecks;
+      if (dc) {
+        for (const rec of Object.values(dc)) delete rec[node.id];
+        currentCatalog().dailyChecks = cleanEmptyDailyDates(dc);
+      }
       save(); render();
+      showToast(`已删除「${node.name}」`, "success"); // 轻量结果反馈
     }
 
     catTree.addEventListener("click", e => {
       if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add") || e.target.closest(".node-note-edit")) return;
+      // 折叠/展开小箭头：切换该分支的 collapsed（不触发打卡/连线逻辑）
+      const foldBtn = e.target.closest("button[data-fold]");
+      if (foldBtn) {
+        e.stopPropagation();
+        toggleCollapse(foldBtn.dataset.fold);
+        return;
+      }
       // 目录 logo：单击跳转到对应目录的树（不触发打卡）
       const logoBtn = e.target.closest(".catalog-logo");
       if (logoBtn && logoBtn.dataset.catalogTarget) {
@@ -2748,7 +4065,14 @@
         const id = toggleBtn.dataset.toggle;
         const node = nodeById(id);
         if (!node) return;
-        const nextDone = !nodeDone(node);
+        // 每日打卡节点：点击 = 在日历选中日期上打卡/取消（过去补签、未来禁止），
+        // 不走 done/completedAt，也不触发连线联动
+        if (node.kind === "daily") {
+          handleDailyToggle(id);
+          return;
+        }
+        // 批量完成/取消的「下一态」只看 once 叶子；纯 once 树与原 nodeDone 判定等价
+        const nextDone = !onceLeavesAllDone(id);
         const now = nowCompletedAt();
         // 用户的主动打卡：亲自点击的节点不打联动标记（若原来是联动完成，此时改为用户自己的记录/取消）
         setNodeDoneWithLeaves(id, nextDone, nextDone ? now : "", false);
@@ -2780,6 +4104,7 @@
       if (act === "add") startAddEditor(refId || null);
       else if (act === "rename") startRenameEditor(refId);
       else if (act === "note") startNoteEditor(refId);
+      else if (act === "kind") toggleNodeKind(refId);
       else if (act === "delete") deleteNode(refId);
       else if (act === "link") enterLinkMode(refId, "add");
       else if (act === "unlink") {
@@ -2803,6 +4128,8 @@
     ctxMenu.addEventListener("contextmenu", e => e.preventDefault());
 
     mindmapStage.addEventListener("contextmenu", e => {
+      // 触屏长按会引出系统 contextmenu：只阻止，不弹桌面菜单（触屏走底部抽屉）
+      if (Date.now() - lastTouchAt < 1200) { e.preventDefault(); e.stopPropagation(); return; }
       const hitLink = e.target.closest(".mindmap-link-hit");
       if (hitLink && hitLink.dataset.linkA && hitLink.dataset.linkB) {
         openLinkMenu(e, hitLink.dataset.linkA, hitLink.dataset.linkB);
@@ -2848,15 +4175,35 @@
     // ---------- 空白处拖动画布；节点拖拽仍用于调整层级 ----------
     // 连线模式下拖动/平移画布不退出连线模式：pointerdown 只开始平移，
     // 是否当作「点击空白取消连线」推迟到 pointerup，按位移阈值判定。
+    // 触屏：单指拖动 = 平移；双指捏合 = 围绕双指中点缩放（范围沿用 zoomMin..ZOOM_MAX）
+    const touchPts = new Map(); // 参与手势的触点（pointerId → 屏幕坐标）
+    let pinchBase = null;       // 捏合基线：初始两指距离 / 中点 / 当时 scale 与 pan
+
     mindmapStage.addEventListener("pointerdown", e => {
       if (e.button !== 0) return;
-      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .node-note-edit, .ctx-menu")) return;
+      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .node-note-edit, .ctx-menu, .touch-sheet, .mm-modal")) return;
+      if (e.pointerType === "touch") {
+        touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
+        if (touchPts.size >= 2) {
+          // 第二指落下：进入捏合，取消单指平移
+          panDrag = null;
+          mindmapStage.classList.add("panning");
+          beginPinchBase();
+          e.preventDefault();
+          return;
+        }
+      }
       panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, moved: false };
       mindmapStage.classList.add("panning");
       try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
       e.preventDefault();
     });
     mindmapStage.addEventListener("pointermove", e => {
+      if (e.pointerType === "touch" && touchPts.has(e.pointerId)) {
+        touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinchBase && touchPts.size >= 2) { applyPinch(); return; }
+      }
       if (!panDrag) return;
       pan.x = panDrag.ox + (e.clientX - panDrag.sx);
       pan.y = panDrag.oy + (e.clientY - panDrag.sy);
@@ -2864,6 +4211,34 @@
       clampPan();
       applyPan();
     });
+    function beginPinchBase() {
+      const pts = [...touchPts.values()];
+      const rect = mindmapStage.getBoundingClientRect();
+      pinchBase = {
+        d0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+        s0: scale,
+        px0: pan.x, py0: pan.y,
+        mx0: (pts[0].x + pts[1].x) / 2 - rect.left,
+        my0: (pts[0].y + pts[1].y) / 2 - rect.top
+      };
+    }
+    // 捏合缩放：scale = s0 × (当前两指距 / 初始两指距)，并让初始中点指向的内容
+    // 始终跟随当前双指中点（zoom-to-midpoint，双指拖动平移二合一）
+    function applyPinch() {
+      const pts = [...touchPts.values()];
+      const rect = mindmapStage.getBoundingClientRect();
+      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      const mx = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const my = (pts[0].y + pts[1].y) / 2 - rect.top;
+      const next = Math.min(ZOOM_MAX, Math.max(zoomMin, pinchBase.s0 * (d / pinchBase.d0)));
+      const cx = (pinchBase.mx0 - pinchBase.px0) / pinchBase.s0;
+      const cy = (pinchBase.my0 - pinchBase.py0) / pinchBase.s0;
+      scale = next;
+      pan.x = mx - cx * scale;
+      pan.y = my - cy * scale;
+      clampPan();
+      applyPan();
+    }
     function endPan(e) {
       if (!panDrag) return;
       const wasBlankClick = !panDrag.moved; // 几乎没移动的单击才算点击空白；平移不取消连线
@@ -2874,8 +4249,28 @@
       }
       if (wasBlankClick && linkMode) exitLinkMode("已取消连线操作");
     }
-    mindmapStage.addEventListener("pointerup", endPan);
-    mindmapStage.addEventListener("pointercancel", endPan);
+    function handleStagePointerUp(e) {
+      if (e.pointerType === "touch" && touchPts.delete(e.pointerId)) {
+        if (pinchBase) {
+          if (touchPts.size < 2) {
+            pinchBase = null;
+            const rest = [...touchPts.values()][0];
+            if (rest) {
+              // 剩一指继续拖动 = 平移（moved 预置 true，不当作空白点击）
+              panDrag = { sx: rest.x, sy: rest.y, ox: pan.x, oy: pan.y, moved: true };
+            } else {
+              mindmapStage.classList.remove("panning");
+            }
+          }
+          return;
+        }
+        endPan(e);
+        return;
+      }
+      endPan(e);
+    }
+    mindmapStage.addEventListener("pointerup", handleStagePointerUp);
+    mindmapStage.addEventListener("pointercancel", handleStagePointerUp);
 
     // ---------- 滚轮缩放（以鼠标位置为中心） ----------
     mindmapStage.addEventListener("wheel", e => {
@@ -2975,7 +4370,12 @@
       dragged.parentId = targetId;
       // 目标从叶子变成分支：清掉它作为叶子时的 done，避免下次加载下推给子节点
       const newParent = targetId ? nodeById(targetId) : null;
-      if (newParent) { newParent.done = false; newParent.completedAt = ""; }
+      if (newParent) {
+        newParent.done = false;
+        newParent.completedAt = "";
+        // 拖进折叠中的分支：自动展开，否则新挂的子树不可见
+        if (newParent.collapsed === true) newParent.collapsed = false;
+      }
       dragId = null; // drop 后 render 会换掉 DOM，dragend 可能收不到，这里主动清理
       save(); render();
     });
@@ -3085,12 +4485,19 @@
 
     function deleteCatalog(id) {
       if (state.catalogs.length <= 1) {
-        alert("至少要保留一个目录，不能删除。");
+        showToast("至少要保留一个目录，不能删除。", "error"); // 替代原生 alert
         return;
       }
       const cat = state.catalogs.find(c => c.id === id);
       if (!cat) return;
-      if (!confirm(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`)) return;
+      // 自定义确认弹窗（Promise 化）替代原生 confirm：取消则不删
+      confirmDialog(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`,
+        { title: "删除目录", confirmText: "删除" })
+        .then(ok => { if (ok) doDeleteCatalog(id); });
+    }
+    function doDeleteCatalog(id) {
+      const cat = state.catalogs.find(c => c.id === id);
+      if (!cat) return;
       if (cat.id === NEURCROSS_CATALOG_ID || cat.name === NEURCROSS_CATALOG_NAME) {
         state.neurCrossHidden = true; // 删除要能持久，刷新后不再自动补回
       }
@@ -3175,21 +4582,37 @@
     }
 
     catalogCollapseBtn.addEventListener("click", () => {
+      if (isMobileLayout()) { setDrawerOpen(false); return; } // 移动端抽屉只关，不持久化桌面侧栏状态
       state.sidebarOpen = false;
-      save();
+      save(false); // 折叠侧栏是纯视图状态：照常落盘，但不入撤销历史
       applySidebarOpen();
     });
     catalogRailBtn.addEventListener("click", () => {
       state.sidebarOpen = true;
-      save();
+      save(false); // 展开侧栏同上：不入历史
       applySidebarOpen();
     });
     catalogAddBtn.addEventListener("click", () => createCatalog());
+
+    // ---------- 移动端（视口 <760px）：目录侧栏 = 汉堡按钮呼出的可收起抽屉 ----------
+    const mobileMenuBtn = document.getElementById("mobileMenuBtn");
+    const drawerMask = document.getElementById("drawerMask");
+    const mqMobile = window.matchMedia("(max-width: 759px)");
+    function isMobileLayout() { return mqMobile.matches; }
+    function setDrawerOpen(open) {
+      catalogSidebar.classList.toggle("drawer-open", open);
+      drawerMask.hidden = !(open && isMobileLayout());
+    }
+    mobileMenuBtn.addEventListener("click", () => setDrawerOpen(true));
+    drawerMask.addEventListener("click", () => setDrawerOpen(false));
+    mqMobile.addEventListener("change", () => { if (!isMobileLayout()) setDrawerOpen(false); });
 
     catalogList.addEventListener("click", e => {
       const li = e.target.closest(".catalog-item");
       if (!li) return;
       if (e.target.closest(".catalog-rename-input")) return;
+      // 移动端：点目录项/删除即收起抽屉（点 ✎ 改名除外，要留在抽屉里编辑）
+      if (isMobileLayout() && !e.target.closest(".catalog-item-rename")) setDrawerOpen(false);
       if (e.target.closest(".catalog-item-rename")) {
         const cat = state.catalogs.find(c => c.id === li.dataset.catId);
         if (cat) startCatalogRename(li, cat);
@@ -3268,11 +4691,129 @@
       clearCatDropMarks();
     });
 
+    // ---------- 主题切换（浅色 / 暗色） ----------
+    // 偏好存独立 key signin-tracker-theme（"light" | "dark"），不动签到数据；
+    // 未存过时由 <head> 引导脚本按 prefers-color-scheme 决定默认主题。
+    const THEME_KEY = "signin-tracker-theme";
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    function currentTheme() {
+      return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    }
+    function applyThemeBadge() {
+      const dark = currentTheme() === "dark";
+      themeToggleBtn.textContent = dark ? "☀️" : "🌙";
+      themeToggleBtn.title = dark ? "切换到浅色主题" : "切换到暗色主题";
+    }
+    function setTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+      refreshBranchHexes(); // 分支/连线/目录圈颜色按主题重取 CSS 变量
+      applyThemeBadge();
+      render(); // 重画分支与目录圈颜色
+    }
+    themeToggleBtn.addEventListener("click", () => {
+      setTheme(currentTheme() === "dark" ? "light" : "dark");
+    });
+    refreshBranchHexes(); // 首帧分支颜色与当前主题一致
+    applyThemeBadge();
+
+    /* ==== CANVAS-CONTROLS 事件绑定 ==== */
+    // 右下角工具条：放大 / 缩小 / 百分比（点击回 100%）/ 适应画布 / 全部展开
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomLabelBtn = document.getElementById("zoomLabelBtn");
+    const fitViewBtn = document.getElementById("fitViewBtn");
+    const expandAllBtn = document.getElementById("expandAllBtn");
+    if (zoomInBtn) zoomInBtn.addEventListener("click", () => zoomAtCenter(scale * 1.2));
+    if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => zoomAtCenter(scale / 1.2));
+    if (zoomLabelBtn) zoomLabelBtn.addEventListener("click", () => zoomAtCenter(1));
+    if (fitViewBtn) fitViewBtn.addEventListener("click", () => applyFitView());
+    if (expandAllBtn) expandAllBtn.addEventListener("click", expandAllCollapsed);
+
+    // 顶部搜索框（展开式）：聚焦/有内容时展开，失焦且为空时收起
+    const canvasSearch = document.getElementById("canvasSearch");
+    const searchToggleBtn = document.getElementById("searchToggleBtn");
+    const searchInput = document.getElementById("searchInput");
+    const undoFilterBtn = document.getElementById("undoFilterBtn");
+    function setSearchOpen(open) {
+      if (!canvasSearch || !searchToggleBtn) return;
+      canvasSearch.classList.toggle("open", open);
+      searchToggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (searchToggleBtn) searchToggleBtn.addEventListener("click", () => {
+      const open = canvasSearch.classList.contains("open");
+      setSearchOpen(!open);
+      if (!open && searchInput) searchInput.focus();
+    });
+    if (searchInput) {
+      searchInput.addEventListener("focus", () => setSearchOpen(true));
+      searchInput.addEventListener("input", () => {
+        searchKeyword = searchInput.value;
+        setSearchOpen(true);
+        applySearchFilter();
+      });
+      searchInput.addEventListener("blur", () => {
+        if (!searchKeyword.trim()) setSearchOpen(false);
+      });
+      searchInput.addEventListener("keydown", e => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          searchKeyword = "";
+          searchInput.value = "";
+          applySearchFilter();
+          searchInput.blur();
+        }
+      });
+    }
+    // 只看未完成：已完成的叶子淡化（分支照常）；会话内开关，不持久化
+    if (undoFilterBtn) undoFilterBtn.addEventListener("click", () => {
+      filterUndoneOnly = !filterUndoneOnly;
+      undoFilterBtn.setAttribute("aria-pressed", filterUndoneOnly ? "true" : "false");
+      applySearchFilter();
+    });
+
+    // ---------- 日历面板交互 ----------
+    document.getElementById("calGrid").addEventListener("click", e => {
+      const cell = e.target.closest("button[data-date]");
+      if (!cell) return;
+      selectedDate = cell.dataset.date;
+      // 切日期只影响 daily 节点显示与统计，once 节点状态不变
+      render();
+    });
+    document.getElementById("calPrevBtn").addEventListener("click", () => {
+      calEnsureView();
+      calView = calView.m === 0 ? { y: calView.y - 1, m: 11 } : { y: calView.y, m: calView.m - 1 };
+      renderCalendarPanel();
+    });
+    document.getElementById("calNextBtn").addEventListener("click", () => {
+      calEnsureView();
+      calView = calView.m === 11 ? { y: calView.y + 1, m: 0 } : { y: calView.y, m: calView.m + 1 };
+      renderCalendarPanel();
+    });
+    document.getElementById("dailyCollapseBtn").addEventListener("click", () => {
+      state.calendarOpen = false;
+      save(false); // 视图开合不算一次用户数据变更：落盘但不进撤销栈
+      renderCalendarPanel();
+      scheduleViewportUpdate(); // 面板收起改变舞台宽度，刷新可见集
+    });
+    document.getElementById("dailyRail").addEventListener("click", () => {
+      state.calendarOpen = true;
+      selectedDate = todayIso(); // 展开时回到今天
+      calView = null;
+      save(false); // 视图开合同上：不污染撤销栈
+      renderCalendarPanel();
+      scheduleViewportUpdate();
+    });
+
     applySidebarOpen();
     // 首次打开：若当前目录是大树（例如上次停在 NeurCross），自动缩放到整棵树可见，
     // 不再从顶端 1:1 绘制导致长时间无响应
     pendingAutoFit = true;
     render();
+    // 基线快照：加载完成后的初始状态作为历史起点（它是「第 0 步」，不占操作步数）
+    pushHistory();
+    updateHistoryUi();
+    updateZoomLabel();
   </script>
 </body>
 </html>

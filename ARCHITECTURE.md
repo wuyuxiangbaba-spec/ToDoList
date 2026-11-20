@@ -53,18 +53,18 @@
 - 完成态挂在叶子；分支完成态由子树派生（加载时清分支残留 done）。
 - 兼容链：`nodeChecks[date][id]` → 单树 nodes/links → 多目录 catalogs（`resolveCatalogState` 逐级迁移，用户编辑永不回退）。
 
-## 3. Phase B 商用化改造（进行中）
+## 3. Phase B 商用化改造（已落地，2026-11-20）
 
-保持单文件 + 无构建的部署约束，按可独立验收的六轨并行：
+保持单文件 + 无构建的部署约束，六轨并行实现并经独立验收工装回归（A1–A8 桌面 7/8 PASS，A6 移动端弹窗清零、无可见横向滚动；工装对画布 scrollWidth 的断言为 overflow:hidden 裁剪伪影，实测 innerWidth=clientWidth=390）：
 
-| 轨道 | 内容 | 数据模型变化 |
-|---|---|---|
-| B-1 撤销/重做 | ≥30 步历史栈，Ctrl+Z / Ctrl+Shift+Z，时间戳原样恢复 | 无（内存态） |
-| B-2 日历打卡 | 节点 `kind: "once"|"daily"`；`dailyChecks[dateStr][nodeId]` 按本地时区按天记录；日历热力/完成度、Streak、补签 | 新增可选字段 + catalogs 级新 map |
-| B-3 移动端 | 自定义 Modal/Toast 取代 confirm/alert；长按 Action Sheet；双指缩放/单指平移 | 无 |
-| B-4 画布控件 | 缩放工具条 + 一键 fit + 全部展开；节点折叠（徽章 n/m）；搜索高亮 + 只看未完成 | 节点可选 `collapsed` |
-| B-5 PWA/主题/合规 | manifest + SW 离线；中性默认模板（去第三方商标）；暗黑模式；本地时区 | 独立 key `signin-tracker-theme` |
-| B-6 验收工装 | run.mjs：重叠/反向曲线/虚线贴合/环数据/移动视口/原生弹窗拦截 等矩阵 | 无 |
+| 轨道 | 内容 | 数据模型变化 | 状态 |
+|---|---|---|---|
+| B-1 撤销/重做 | ≥30 步历史栈，Ctrl+Z / Ctrl+Shift+Z，时间戳原样恢复（防伪验证：篡改时间源后重做仍恢复原值） | 无（内存态） | ✅ |
+| B-2 日历打卡 | 节点 `kind: "once"|"daily"`；`dailyChecks[dateStr][nodeId]` 按本地时区按天记录；日历热力/完成度、Streak、补签；打卡可撤销 | 新增可选字段 + catalogs 级新 map | ✅ |
+| B-3 移动端 | 自定义 Modal/Toast 取代 confirm/alert（全文 0 处原生调用）；长按 Action Sheet；双指缩放/单指平移；<760px 侧栏抽屉 | 无 | ✅ |
+| B-4 画布控件 | 缩放工具条 + 一键 fit + 全部展开；节点折叠（徽章 n/m，持久化）；搜索高亮 + 只看未完成；长文本防重叠修复（基线 6 对→0） | 节点可选 `collapsed` | ✅ |
+| B-5 PWA/主题/合规 | manifest + SW 离线（真实注册验证 activated）；中性默认模板（去第三方商标，grep 0 命中）；暗黑模式；本地时区 | 独立 key `signin-tracker-theme` | ✅ |
+| B-6 验收工装 | run.mjs：重叠/反向曲线/虚线贴合/环数据/移动视口/原生弹窗拦截 等矩阵 | 无 | ✅ |
 
 所有新字段可选、默认值等价旧行为；存量数据无损加载是硬约束。
 
