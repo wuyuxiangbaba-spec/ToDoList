@@ -1650,11 +1650,12 @@
     }
 
     /* ==== ROUTE-LIB-START ====
-       任务连线绕障路由（纯函数，无 DOM 依赖）：
-       收集卡片包围盒 → 向外膨胀成障碍 → 端点取卡片外缘接驳点 →
-       先试「分支同款平滑贝塞尔」，撞障碍则 A* 栅格搜折线 → Chaikin 平滑 →
-       Catmull-Rom 转三次贝塞尔（有机曲线，与 mindmap-branch 同类形状）。
-       route-selfcheck.mjs 会抽取本段做几何自检。 */
+       任务连线路由（纯函数，无 DOM 依赖）：
+       端点取两端卡片「朝向对方那条边」的中点 → 默认一条完整的圆滑三次 S 曲线
+       （控制点沿接驳边外法向伸出，水平/法向离开 + 法向接入，一条弯到位）；
+       soft 障碍（分支带等）忽略；只有明显穿过其他任务卡片时才用两段三次曲线
+       做一个大而圆的迂回。rlAStar / rlSmoothPath 保留但不再用于画用户看到的虚线。
+       route-selfcheck 会抽取本段做几何自检。 */
     const RL_MARGIN = 12; // 障碍膨胀边距（卡片外扩后视为不可走）
     const RL_CELL = 12;   // A* 栅格边长
     const RL_EXIT = 18;   // 端点卡片在接驳边一侧留出的出口宽度
@@ -1889,10 +1890,14 @@
       return { d: d.join(" "), pts: sample };
     }
     // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用）。
-    // 起终点为各自「朝向对方那条边」的中点（rlAttachPoint 双矩形版本），
-    // 先沿该边外法向伸出一小段再平滑弯向对方；A* 的起终点也沿同一法向偏移。
-    // hardRects 为全部卡片（两端卡片只封「留出接驳边出口的内部」），softRects 为
-    // 分支走廊/已有连线等软障碍（先带着绕，绕不开再降级）。返回 { d, pts }。
+    // 起终点为各自「朝向对方那条边」的中点（rlAttachPoint 双矩形版本）。
+    // 默认就是一条完整的圆滑三次 S 曲线（rlTwoPointCurve 同款：控制点沿接驳边
+    // 外法向伸出），soft 障碍（分支走廊等）直接忽略——虚线允许穿过分支带，
+    // 不再为此跑 A* / Chaikin / 多段倒圆角产生楼梯状折线。
+    // 只有当这条 S 曲线明显穿过其他任务块（hard 卡片，不含两端）时，
+    // 才做一个大而圆的迂回：把中点沿 pa→pb 法向向两侧推开，用两段三次曲线
+    // （两端切线仍沿各自接驳边法向）拼成一条大圆弧感绕行，一两个大弯。
+    // 返回 { d, pts }。
     function rlPlanLinkPath(aRect, bRect, hardRects, softRects, bounds) {
       const sideA = rlSideToward(aRect, bRect);
       const sideB = rlSideToward(bRect, aRect);
@@ -1901,28 +1906,34 @@
       const hard = hardRects
         .filter(r => r !== aRect && r !== bRect)
         .map(r => rlInflate(r, RL_MARGIN));
-      // 端点卡片封内部（只在接驳边留出口），再外扩一点，避免平滑后的曲线贴边切进卡片
-      hard.push(rlInflate(rlEndpointBlock(aRect, sideA), 6));
-      hard.push(rlInflate(rlEndpointBlock(bRect, sideB), 6));
-      const soft = (softRects || []).map(r => rlInflate(r, 6));
-      // 出口路径点：从接驳边中点沿外法向伸出，A* 在两个出口点之间绕障；
-      // 额外插入 45% 处的中间引出点，让平滑后两端保持明确的法向离开/进入切线
-      const ex = Math.max(36, Math.min(90, rlExitLen(pa, pb)));
-      const ea = { x: pa.x + ex * pa.nx, y: pa.y + ex * pa.ny };
-      const eb = { x: pb.x + ex * pb.nx, y: pb.y + ex * pb.ny };
-      const ma = { x: pa.x + ex * 0.45 * pa.nx, y: pa.y + ex * 0.45 * pa.ny };
-      const mb = { x: pb.x + ex * 0.45 * pb.nx, y: pb.y + ex * 0.45 * pb.ny };
-      const trySets = soft.length ? [hard.concat(soft), hard] : [hard];
-      // 障碍过多时不再尝试 A*（小范围局部障碍本来就很少；这是大树下的保险丝）
-      const allowAStar = obs => obs.length <= 160;
-      for (const obs of trySets) {
-        const direct = rlTwoPointCurve(pa, pb);
-        if (!direct.pts.some(p => obs.some(o => rlPointInRect(p.x, p.y, o)))) return direct;
-        if (!allowAStar(obs)) continue;
-        const poly = rlAStar(ea, eb, obs, bounds);
-        if (poly) return rlSmoothPath([pa, ma].concat(poly, [mb, pb]));
+      const hit = pts => pts.some(p => hard.some(o => rlPointInRect(p.x, p.y, o)));
+      const direct = rlTwoPointCurve(pa, pb);
+      if (!hard.length || !hit(direct.pts)) return direct;
+      // 大圆弧迂回：中点沿 pa→pb 的法向偏移 off，两段三次曲线过偏移中点；
+      // 两侧、从小到大依次尝试，取第一条不穿硬卡片的
+      const L = Math.hypot(pb.x - pa.x, pb.y - pa.y) || 1;
+      const nx = -(pb.y - pa.y) / L, ny = (pb.x - pa.x) / L;
+      const tx = (pb.x - pa.x) / L, ty = (pb.y - pa.y) / L;
+      const k = Math.min(rlExitLen(pa, pb), L * 0.45);
+      const f = v => Math.round(v * 10) / 10;
+      for (const s of [1, -1]) {
+        for (const mult of [1, 1.8, 2.8, 4.2, 6]) {
+          const off = Math.max(44, k * 1.4) * mult * s;
+          const mid = { x: (pa.x + pb.x) / 2 + nx * off, y: (pa.y + pb.y) / 2 + ny * off };
+          const c1a = { x: pa.x + k * pa.nx, y: pa.y + k * pa.ny };
+          const c2a = { x: mid.x - tx * k, y: mid.y - ty * k };
+          const c1b = { x: mid.x + tx * k, y: mid.y + ty * k };
+          const c2b = { x: pb.x + k * pb.nx, y: pb.y + k * pb.ny };
+          const pts = rlSampleCubic(pa, c1a, c2a, mid, 14)
+            .concat(rlSampleCubic(mid, c1b, c2b, pb, 14).slice(1));
+          if (hit(pts)) continue;
+          const d = "M " + f(pa.x) + " " + f(pa.y) +
+            " C " + f(c1a.x) + " " + f(c1a.y) + ", " + f(c2a.x) + " " + f(c2a.y) + ", " + f(mid.x) + " " + f(mid.y) +
+            " C " + f(c1b.x) + " " + f(c1b.y) + ", " + f(c2b.x) + " " + f(c2b.y) + ", " + f(pb.x) + " " + f(pb.y);
+          return { d: d, pts: pts };
+        }
       }
-      return rlTwoPointCurve(pa, pb); // 兜底
+      return direct; // 兜底：宁可直穿也不再画多拐点折线
     }
     /* ==== ROUTE-LIB-END ==== */
 
@@ -1930,7 +1941,7 @@
     // 半宽沿曲线法线扩出，不随线长/走向变细；子端全宽仍有 ~4px，不会成发丝
     const BRANCH_HALF_W_PARENT = 3.9;
     const BRANCH_HALF_W_CHILD = 2.0;
-    const BRANCH_STEM = 38;
+    const BRANCH_STEM = 14;
     const BRANCH_SAMPLES = 40;
 
     // 父子实线分支色带：中心线仍是 (p0 → 短水平 stem 控制点 → 三次贝塞尔 → p1)，
@@ -2127,16 +2138,16 @@
         // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带），
         // 分支 path 用布局坐标直接计算，不为每条边做 DOM 测量
         const branchCorridors = [];
-        // 同一父节点下的兄弟分支一出发就错开，不再共用同一个出发点 + 同一段水平 stem：
-        // 按父节点分组（组内边已按子节点从上到下的布局顺序排列），把各自的接驳点
-        // 沿父块右缘上下分布，并让第一控制点朝各自子节点方向偏移
-        // （c1.y = yStart + α*(y2 - yStart)），向上的孩子一开始就往上离开、
-        // 向下的往下离开，曲线在前半段就分散，色带不会叠成一根粗带。
-        // N==1 时仍用父块垂直中心 from.y + 纯水平 stem，单条线走线与之前完全一致。
+        // 同一父节点下的兄弟分支：思维导图式紧凑分叉（markmap / Mind Elixir 走线）。
+        // 所有兄弟都从「父块右缘中点」出发，水平离开（c1.y === 出发 y）、
+        // 水平接入（c2.y === 子节点 y），一条三次曲线弯到位，中途不折行；
+        // 起点最多做「刚好避免色带完全重叠」的极小错开（每档约半个带宽，
+        // 远小于胶囊高度，不再沿右缘拉开一大截），stem 统一且很短
+        // （BRANCH_STEM≈14），出发段彼此叠合成一小段自然的共用主干。
+        // 端点落在朝向对方那条边的中点（父右缘中点 / 子左缘中点），
+        // 并向块内重叠 1px，由上层节点卡片盖住，消抗锯齿细缝、不露洞。
         // 分支带继续用切线法线偏移（cubicRibbon）：父端半宽 BRANCH_HALF_W_PARENT、
         // 子端半宽 BRANCH_HALF_W_CHILD，宽度不随线长/走向变细；子端水平切线接入。
-        const SIB_ALPHA = 0.32; // c1 朝子节点方向的偏移比例
-        const SIB_MIN_GAP = 2 * BRANCH_HALF_W_PARENT + 2.4; // 出发处色带不重叠的最小起点间距
         const edgeGroups = new Map();
         for (const e of edges) {
           let grp = edgeGroups.get(e.from.nid);
@@ -2148,27 +2159,17 @@
           if (!rf) continue;
           const targets = grp.map(e => {
             const rt = rectByNid.get(e.to.nid);
-            return rt ? { x2: rt.x + 2, y2: e.to.y } : null;
+            return rt ? { x2: rt.x + 1, y2: e.to.y } : null;
           });
           const n = grp.length;
-          // 出发点 yStart：N==1 用父块垂直中心（旧行为不变）；
-          // N>=2 优先在父块右缘 [y+pad, y+h-pad] 内均布，高度不够排开时
-          // 宁可略微超出胶囊上下沿，也不挤在中点共用一点
-          let yStarts;
-          if (n === 1) {
-            yStarts = [grp[0].from.y];
-          } else {
-            const pad = 6;
-            let gap = (rf.h - 2 * pad) / (n - 1);
-            if (gap < SIB_MIN_GAP) gap = SIB_MIN_GAP;
-            const cy = grp[0].from.y;
-            yStarts = grp.map((_, i) => cy + (i - (n - 1) / 2) * gap);
-          }
+          // 极小错开：每档约 4.8px（父端带宽 7.8px），只避免完全叠死，
+          // 视觉上仍是同一个出发点
+          const offStep = n >= 2 ? BRANCH_HALF_W_PARENT + 0.9 : 0;
           grp.forEach((e, i) => {
             const tgt = targets[i];
             if (!tgt) return;
-            const x1 = rf.x + rf.w - 2;
-            const y1 = yStarts[i];
+            const x1 = rf.x + rf.w - 1;
+            const y1 = grp[0].from.y + (n >= 2 ? (i - (n - 1) / 2) * offStep : 0);
             const { x2, y2 } = tgt;
 
             branchCorridors.push(rlRect(
@@ -2176,15 +2177,12 @@
               Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
             ));
 
-            const stem = Math.max(10, Math.min(BRANCH_STEM, (x2 - x1) * 0.5));
-            // 多兄弟时给略微不同的 stem（±14%），进一步避免前段控制点重合
-            const stemI = n >= 2 ? stem * (1 + 0.14 * (i / (n - 1) - 0.5) * 2) : stem;
-            const cx1 = x1 + stemI;
-            const cy1 = n >= 2 ? y1 + SIB_ALPHA * (y2 - y1) : y1;
-            const cx2 = x2 - stem;
+            const stem = Math.max(5, Math.min(BRANCH_STEM, (x2 - x1) * 0.45));
+            const cx1 = x1 + stem; // 水平离开：c1 与起点同 y
+            const cx2 = x2 - stem; // 水平接入：c2 与终点同 y
 
             e.d = cubicRibbon(
-              { x: x1, y: y1 }, { x: cx1, y: cy1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
+              { x: x1, y: y1 }, { x: cx1, y: y1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
               BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
             );
           });
