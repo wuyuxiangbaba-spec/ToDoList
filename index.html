@@ -779,61 +779,35 @@
     // 含默认树、节点规范化、旧数据迁移（resolveState）与多目录解析
     // （resolveCatalogState）。catalog-selfcheck.mjs 会抽取本段做迁移自检。
     const STORAGE_KEY = "signin-tracker-v1";
-    // 默认树 = 中性示例模板（三层：主题 → 方面 → 每日小事），不带任何第三方
-    // App / 商标 / 真实人名地名；每个节点配一句中性说明（note）。
-    // 合规调整只影响「新用户首开」与「仍是旧示例树」的本地数据（见 isLegacySampleOnly），
-    // 存量用户树有迁移守卫保护，不会被这份默认树覆盖。
-    // 节点 id 用 dflt- 前缀：与旧示例集合（LEGACY_SAMPLE_IDS）、用户树根
-    // （USER_ROOT_ID，nmw…）和 NeurCross 预置（nc_…）都不冲突。
+    // 默认树 = 用户个人树（从 commit 3e873f2 逐字节恢复：23 个 nmw 节点，
+    // 顶层「昆仑数模」「上海大学」）。43c9c35 曾短暂替换为 dflt- 中性模板，
+    // 现已恢复；被 dflt- 模板覆盖过的本地「默认目录」由 resolveCatalogState
+    // 里的迁移逻辑自动换回本树（识别特征：目录内节点 id 全部 dflt- 前缀）。
+    // USER_ROOT_ID（nmw…）与 LEGACY_SAMPLE_IDS 守卫同 3e873f2 一致。
     const DEFAULT_NODES = [
-      { id: "dflt-health", name: "健康作息", parentId: null, done: false, completedAt: "",
-        note: "示例模板：把每天的身体状态拆成几件可勾选的小事" },
-      { id: "dflt-health-sleep", name: "规律睡眠", parentId: "dflt-health", done: false, completedAt: "",
-        note: "固定入睡与起床时间，帮助身体形成节律" },
-      { id: "dflt-health-sleep-1", name: "23:00 前放下手机", parentId: "dflt-health-sleep", done: false, completedAt: "",
-        note: "睡前半小时远离屏幕，更容易入睡" },
-      { id: "dflt-health-sleep-2", name: "保持 7–8 小时睡眠", parentId: "dflt-health-sleep", done: false, completedAt: "",
-        note: "醒来精神饱满即为合适的时长" },
-      { id: "dflt-health-move", name: "适量运动", parentId: "dflt-health", done: false, completedAt: "",
-        note: "低强度活动积累起来同样有效" },
-      { id: "dflt-health-move-1", name: "快走或慢跑 30 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
-        note: "通勤步行也可以折算进来" },
-      { id: "dflt-health-move-2", name: "睡前拉伸 10 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
-        note: "重点放松肩颈与腰背" },
-      { id: "dflt-health-eat", name: "均衡饮食", parentId: "dflt-health", done: false, completedAt: "",
-        note: "规律三餐，少油少糖" },
-      { id: "dflt-health-eat-1", name: "按时吃早餐", parentId: "dflt-health-eat", done: false, completedAt: "",
-        note: "为上午提供稳定精力" },
-      { id: "dflt-health-eat-2", name: "足量饮水", parentId: "dflt-health-eat", done: false, completedAt: "",
-        note: "少量多次，不必一次喝完" },
-      { id: "dflt-learn", name: "学习提升", parentId: null, done: false, completedAt: "",
-        note: "示例模板：输入与练习搭配，记录每天的学习节奏" },
-      { id: "dflt-learn-read", name: "阅读输入", parentId: "dflt-learn", done: false, completedAt: "",
-        note: "把阅读拆到页数或章节，更容易坚持" },
-      { id: "dflt-learn-read-1", name: "阅读 20 页", parentId: "dflt-learn-read", done: false, completedAt: "",
-        note: "纸质书或电子书都可以" },
-      { id: "dflt-learn-read-2", name: "摘抄 3 句笔记", parentId: "dflt-learn-read", done: false, completedAt: "",
-        note: "再写一句自己的理解更好" },
-      { id: "dflt-learn-skill", name: "技能练习", parentId: "dflt-learn", done: false, completedAt: "",
-        note: "固定时段专注练习一项技能" },
-      { id: "dflt-learn-skill-1", name: "专注练习 25 分钟", parentId: "dflt-learn-skill", done: false, completedAt: "",
-        note: "大约一个番茄钟的时长" },
-      { id: "dflt-learn-skill-2", name: "整理练习记录", parentId: "dflt-learn-skill", done: false, completedAt: "",
-        note: "每周复盘一次进度" },
-      { id: "dflt-work", name: "工作效率", parentId: null, done: false, completedAt: "",
-        note: "示例模板：先计划后执行，减少切换成本" },
-      { id: "dflt-work-plan", name: "计划先行", parentId: "dflt-work", done: false, completedAt: "",
-        note: "每天列出少量要事，优先完成" },
-      { id: "dflt-work-plan-1", name: "早晨列出 3 件要事", parentId: "dflt-work-plan", done: false, completedAt: "",
-        note: "完成后逐项打勾" },
-      { id: "dflt-work-plan-2", name: "睡前核对清单", parentId: "dflt-work-plan", done: false, completedAt: "",
-        note: "未完成项顺延到明天" },
-      { id: "dflt-work-focus", name: "减少干扰", parentId: "dflt-work", done: false, completedAt: "",
-        note: "保护整块的注意力时间" },
-      { id: "dflt-work-focus-1", name: "专注时段静音通知", parentId: "dflt-work-focus", done: false, completedAt: "",
-        note: "集中时段统一回复消息更高效" },
-      { id: "dflt-work-focus-2", name: "单线程处理任务", parentId: "dflt-work-focus", done: false, completedAt: "",
-        note: "减少多任务来回切换" }
+      { id: "nmwiyegtzm0v4", name: "昆仑数模", parentId: null, done: false, completedAt: "" },
+      { id: "nmwiyekmtshvg", name: "上海大学", parentId: null, done: false, completedAt: "" },
+      { id: "nmwiyes47mg9k", name: "王静", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+      { id: "nmwiyf1ofag9i", name: "G5二次开发", parentId: "nmwiyes47mg9k", done: false, completedAt: "" },
+      { id: "nmwiyfd4n5bi5", name: "宋亦诚", parentId: "nmwiyekmtshvg", done: false, completedAt: "" },
+      { id: "nmwiyfjkrrj1t", name: "有限元作业批改", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+      { id: "nmwiyg84eqd74", name: "基于标架场的全四边形动网格", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+      { id: "nmwiyh6f0uvi5", name: "上机作业@第三周", parentId: "nmwiyfjkrrj1t", done: true, completedAt: "2026-11-17 16:10" },
+      { id: "nmwiyhe7ow45g", name: "上机作业@第四周", parentId: "nmwiyfjkrrj1t", done: false, completedAt: "" },
+      { id: "nmwiyhi0un6d9", name: "代码", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhmuh3kk8", name: "算例", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhrdyz4x1", name: "文章本体", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+      { id: "nmwiyhvwukpr5", name: "PPT汇报", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+      { id: "nmwiyi34z6iem", name: "昆仑的工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+      { id: "nmwiyi6ogqspx", name: "科研工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+      { id: "nmwkexync69fx", name: "G5输出三角形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkey9gw84md", name: "程序读取节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkeyg24u5em", name: "G5读取四边形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+      { id: "nmwkezurhvevm", name: "读取三角形节点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf046xe2ip", name: "布置/光滑标架场", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf08uatt86", name: "找奇异点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf0d77uxqr", name: "分块", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+      { id: "nmwkf0i9b3ft6", name: "生成四边形网格", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" }
     ];
 
     // 分支 / 连线 / 目录圈完成色：从 CSS 变量 --branch-done / --branch-todo 取
@@ -1748,6 +1722,22 @@
               for (const c of catalogs) {
                 if (usedIds.has(c.id)) c.id = genCatalogId();
                 usedIds.add(c.id);
+              }
+              // —— 个人默认树恢复：清理被 dflt- 中性模板整目录覆盖的默认目录 ——
+              // 特征只认节点 id：目录 nodes 非空且【全部】以 "dflt-" 开头 => 曾被
+              // 中性模板覆盖（目录名可能已改，不可信）。含任何非 dflt- 节点
+              // （nmw… 老树、用户自建 n…、nc_ 预置）=> 用户动过或非模板，严禁覆盖。
+              for (const c of catalogs) {
+                const nodes = Array.isArray(c.nodes) ? c.nodes : [];
+                if (!nodes.length) continue; // 空目录 = 用户清空过，不在本迁移职责内
+                if (!nodes.every(n => n && typeof n.id === "string" && n.id.indexOf("dflt-") === 0)) continue;
+                const tree = freshUserTreeState(); // DEFAULT_NODES 深拷贝（每目录独立一份），走统一 normalizeState
+                c.nodes = tree.nodes;              // 整树换回个人默认树（含 上机作业@第三周 的 done/completedAt）
+                c.links = [];                      // dflt 模板无连线，原 links 随树一并丢弃
+                c.linkDone = {};                   // 联动完成标记同样清空
+                // 目录 id / name / archVersion 未动：currentCatalogId、侧栏顺序、
+                // NeurCross 逻辑均不受影响；挂在被替换 dflt- 节点上的插入徽标
+                // 会在随后的 normalizeCatalogInserts 里因节点不存在被自动清掉。
               }
               // 用户主动删除过 NeurCross 目录后不再自动补回（删除确认框承诺「无法恢复」）
               const hidden = data.neurCrossHidden === true;
