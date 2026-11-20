@@ -1,0 +1,572 @@
+diff --git a/base.html "b/b\\mobile\\mobile.html"
+index b5cf6a1..b2d35c0 100644
+--- a/base.html
++++ "b/b\\mobile\\mobile.html"
+@@ -407,6 +407,113 @@
+       text-overflow: ellipsis;
+     }
+     .link-hint[hidden] { display: none !important; }
++
++    /* ===== 自定义 Modal / Toast（替代原生 confirm/alert，桌面与触屏同一套） ===== */
++    .mm-modal-mask {
++      position: fixed; inset: 0; z-index: 1500;
++      background: rgba(30, 36, 48, 0.32);
++      display: flex; align-items: center; justify-content: center;
++      padding: 24px;
++    }
++    .mm-modal-mask[hidden] { display: none !important; }
++    .mm-modal {
++      width: min(92vw, 360px);
++      background: var(--paper);
++      border: 1px solid var(--line);
++      border-radius: var(--radius);
++      box-shadow: var(--shadow);
++      padding: 18px 18px 14px;
++    }
++    .mm-modal-title { font-size: 16px; letter-spacing: 1px; margin-bottom: 10px; color: var(--ink); }
++    .mm-modal-body {
++      font-size: 13.5px; line-height: 1.7; color: var(--ink);
++      white-space: pre-wrap; word-break: break-word; margin-bottom: 16px;
++    }
++    .mm-modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
++    .mm-modal-btns button { min-width: 88px; padding: 8px 14px; }
++    .mm-modal-btns button.ok { color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft); }
++    .mm-modal-btns button.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
++    .mm-modal-btns button.danger:hover { background: #97190f; }
++
++    .mm-toast {
++      position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%;
++      transform: translateX(-50%);
++      z-index: 1600; max-width: 86vw;
++      background: var(--ink); color: var(--paper);
++      border-radius: 999px; padding: 9px 18px;
++      font-size: 13px; letter-spacing: 0.5px;
++      box-shadow: var(--shadow);
++      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
++    }
++    .mm-toast[hidden] { display: none !important; }
++    .mm-toast.success { background: var(--accent); }
++    .mm-toast.error { background: var(--danger); }
++
++    /* ===== 触屏长按弹出的底部操作抽屉（Action Sheet） ===== */
++    .touch-sheet-mask {
++      position: fixed; inset: 0; z-index: 1250;
++      background: rgba(30, 36, 48, 0.28);
++    }
++    .touch-sheet-mask[hidden] { display: none !important; }
++    .touch-sheet {
++      position: fixed; left: 0; right: 0; bottom: 0; z-index: 1260;
++      margin: 0 auto; max-width: 560px;
++      background: var(--paper);
++      border-radius: 18px 18px 0 0;
++      box-shadow: 0 -8px 30px rgba(30, 36, 48, 0.18);
++      padding: 8px 14px calc(12px + env(safe-area-inset-bottom));
++      animation: sheet-up 0.22s ease;
++    }
++    .touch-sheet[hidden] { display: none !important; }
++    @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
++    .touch-sheet-grab { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 8px; }
++    .touch-sheet-title {
++      text-align: center; font-size: 12.5px; color: var(--muted);
++      margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
++    }
++    .touch-sheet-actions { display: flex; flex-direction: column; gap: 6px; }
++    .touch-sheet-actions button {
++      width: 100%; padding: 12px 14px; font-size: 14.5px;
++      border-radius: 12px; text-align: center; background: #fff;
++    }
++    .touch-sheet-actions button.danger { color: var(--danger); border-color: #f0c9c6; background: var(--danger-soft); }
++    .touch-sheet-cancel {
++      width: 100%; margin-top: 8px; padding: 11px 14px; font-size: 14px;
++      color: var(--muted); background: #f7f3eb;
++    }
++
++    /* ===== 移动端（视口 <760px）：目录侧栏改为可收起的抽屉 ===== */
++    .mobile-menu-btn {
++      display: none;
++      position: fixed; left: 12px; top: calc(12px + env(safe-area-inset-top)); z-index: 940;
++      width: 40px; height: 40px; padding: 0;
++      align-items: center; justify-content: center;
++      font-size: 18px; line-height: 1;
++      background: var(--paper); box-shadow: var(--shadow);
++    }
++    .drawer-mask {
++      position: fixed; inset: 0; z-index: 945;
++      background: rgba(30, 36, 48, 0.25);
++    }
++    .drawer-mask[hidden] { display: none !important; }
++    @media (max-width: 759px) {
++      .catalog-sidebar {
++        position: fixed; left: 0; top: 0; bottom: 0;
++        width: min(78vw, 300px);
++        z-index: 950; transform: translateX(-103%);
++        transition: transform 0.25s ease;
++        border-right: 1px solid var(--line);
++        box-shadow: var(--shadow);
++      }
++      .catalog-sidebar.drawer-open { transform: none; }
++      .catalog-rail { display: none !important; }
++      .mobile-menu-btn { display: inline-flex; }
++    }
++    /* 触屏细节：去掉点按高亮与系统长按呼出 */
++    .mindmap-stage, .node-btn, .catalog-item {
++      -webkit-tap-highlight-color: transparent;
++      -webkit-touch-callout: none;
++    }
+   </style>
+ </head>
+ <body>
+@@ -450,6 +557,32 @@
+ 
+   <div id="linkHint" class="link-hint" hidden></div>
+ 
++  <!-- 自定义确认弹窗 / Toast：替代浏览器原生对话框（行为语义不变） -->
++  <div id="mmModal" class="mm-modal-mask" hidden role="dialog" aria-modal="true" aria-labelledby="mmModalTitle">
++    <div class="mm-modal">
++      <div class="mm-modal-title" id="mmModalTitle">确认操作</div>
++      <div class="mm-modal-body" id="mmModalBody"></div>
++      <div class="mm-modal-btns">
++        <button type="button" id="mmModalCancel">取消</button>
++        <button type="button" id="mmModalOk" class="danger">确定</button>
++      </div>
++    </div>
++  </div>
++  <div id="mmToast" class="mm-toast" hidden role="status"></div>
++
++  <!-- 触屏长按弹出的底部操作抽屉 -->
++  <div id="touchSheetMask" class="touch-sheet-mask" hidden></div>
++  <div id="touchSheet" class="touch-sheet" hidden role="menu" aria-label="节点操作">
++    <div class="touch-sheet-grab"></div>
++    <div class="touch-sheet-title" id="touchSheetTitle"></div>
++    <div class="touch-sheet-actions" id="touchSheetActions"></div>
++    <button type="button" class="touch-sheet-cancel" id="touchSheetCancel">取消</button>
++  </div>
++
++  <!-- 移动端汉堡按钮 + 目录抽屉遮罩 -->
++  <button type="button" id="mobileMenuBtn" class="mobile-menu-btn ghost" title="打开目录" aria-label="打开目录">☰</button>
++  <div id="drawerMask" class="drawer-mask" hidden></div>
++
+   <script>
+     /* ==== CATALOG-PURE-START ==== */
+     // 本段为纯函数区（无 DOM / localStorage 依赖）：
+@@ -2479,6 +2612,8 @@
+         exitLinkMode("已取消连线操作");
+       }
+       if (e.key === "Escape") {
++        if (!mmModal.hidden) { e.preventDefault(); closeMmModal(false); } // 自定义弹窗按 Esc = 取消
++        if (!touchSheet.hidden) { e.preventDefault(); closeTouchSheet(); }
+         if (!ctxMenu.hidden) { e.preventDefault(); closeMenu(); }
+         if (!linkCtxMenu.hidden) { e.preventDefault(); closeLinkMenu(); }
+         if (!catCtxMenu.hidden) { e.preventDefault(); closeCatMenu(); }
+@@ -2502,10 +2637,216 @@
+         e.preventDefault();
+         const refId = ctxTarget.refId;
+         closeMenu();
+-        deleteNode(refId, true); // 无确认删除该节点（绕过 confirm）
++        deleteNode(refId, true); // 无确认删除该节点（绕过确认弹窗）
+       }
+     });
+ 
++    // ---------- 自定义 Modal / Toast（替代原生 confirm/alert；桌面与触屏同一套） ----------
++    const mmModal = document.getElementById("mmModal");
++    const mmModalOk = document.getElementById("mmModalOk");
++    let mmModalResolve = null;
++
++    // confirmDialog(msg) → Promise<boolean>：确认 true / 取消·Esc·点遮罩 false。
++    // 删除类操作默认「危险色确认」按钮（红色实底），语义与原生 confirm 一致。
++    function confirmDialog(msg, opts) {
++      opts = opts || {};
++      return new Promise(resolve => {
++        if (!mmModal.hidden && mmModalResolve) mmModalResolve(false); // 旧弹窗让位
++        mmModalResolve = resolve;
++        document.getElementById("mmModalTitle").textContent = opts.title || "确认操作";
++        document.getElementById("mmModalBody").textContent = msg;
++        mmModalOk.textContent = opts.confirmText || "确定";
++        mmModalOk.className = opts.danger === false ? "ok" : "danger";
++        mmModal.hidden = false;
++      });
++    }
++    function closeMmModal(ok) {
++      if (mmModal.hidden) return;
++      mmModal.hidden = true;
++      const r = mmModalResolve;
++      mmModalResolve = null;
++      if (r) r(!!ok);
++    }
++    document.getElementById("mmModalCancel").addEventListener("click", () => closeMmModal(false));
++    mmModalOk.addEventListener("click", () => closeMmModal(true));
++    mmModal.addEventListener("click", e => { if (e.target === mmModal) closeMmModal(false); });
++
++    const mmToastEl = document.getElementById("mmToast");
++    let mmToastTimer = null;
++    // showToast(msg, "success" | "error")：2.5s 自动消失
++    function showToast(msg, kind) {
++      mmToastEl.textContent = msg;
++      mmToastEl.className = "mm-toast" + (kind === "success" ? " success" : kind === "error" ? " error" : "");
++      mmToastEl.hidden = false;
++      clearTimeout(mmToastTimer);
++      mmToastTimer = setTimeout(() => { mmToastEl.hidden = true; }, 2500);
++    }
++
++    // ---------- 触屏长按 → 底部操作抽屉（Action Sheet） ----------
++    const touchSheet = document.getElementById("touchSheet");
++    const touchSheetMask = document.getElementById("touchSheetMask");
++    let sheetCtx = null; // { type: "node", refId, unpinTarget } | { type: "blank" } | { type: "link", a, b }
++
++    // 与桌面右键菜单同一套动作分发，保证行为语义一致
++    function runNodeAction(act, refId, unpinTarget) {
++      if (act === "add") startAddEditor(refId || null);
++      else if (act === "rename") startRenameEditor(refId);
++      else if (act === "note") startNoteEditor(refId);
++      else if (act === "delete") deleteNode(refId);
++      else if (act === "link") enterLinkMode(refId, "add");
++      else if (act === "unlink") {
++        const ls = linksOf(refId);
++        if (ls.length === 1) {
++          removeLinkBetween(refId, otherEndOf(ls[0], refId));
++          render();
++        } else {
++          enterLinkMode(refId, "remove");
++        }
++      } else if (act === "unpin") {
++        state.catalogInserts = state.catalogInserts.filter(ins =>
++          !(ins.catalog === state.currentCatalogId && ins.node === refId &&
++            (!unpinTarget || ins.target === unpinTarget))
++        );
++        save();
++        renderTree();
++      }
++    }
++    function openTouchSheet(title, actions, ctx) {
++      sheetCtx = ctx;
++      document.getElementById("touchSheetTitle").textContent = title;
++      const box = document.getElementById("touchSheetActions");
++      box.innerHTML = "";
++      for (const a of actions) {
++        const b = document.createElement("button");
++        b.type = "button";
++        b.dataset.act = a.act;
++        b.textContent = a.label;
++        if (a.danger) b.className = "danger";
++        box.appendChild(b);
++      }
++      touchSheet.hidden = false;
++      touchSheetMask.hidden = false;
++    }
++    function closeTouchSheet() {
++      touchSheet.hidden = true;
++      touchSheetMask.hidden = true;
++      sheetCtx = null;
++    }
++    touchSheet.addEventListener("click", e => {
++      const btn = e.target.closest("button[data-act]");
++      if (!btn) return;
++      const ctx = sheetCtx;
++      closeTouchSheet();
++      if (!ctx) return;
++      if (ctx.type === "link") {
++        if (btn.dataset.act === "delete-link") { removeLinkBetween(ctx.a, ctx.b); render(); }
++        return;
++      }
++      if (ctx.type === "blank") {
++        if (btn.dataset.act === "add-root") startAddEditor(null);
++        return;
++      }
++      runNodeAction(btn.dataset.act, ctx.refId, ctx.unpinTarget || "");
++    });
++    document.getElementById("touchSheetCancel").addEventListener("click", closeTouchSheet);
++    touchSheetMask.addEventListener("click", closeTouchSheet);
++
++    // 节点长按抽屉：可见项与桌面右键菜单完全一致（虚拟根只留新增分支）
++    function openNodeTouchSheet(nodeEl, logoTarget) {
++      const isRoot = nodeEl.dataset.ntype === "root";
++      const refId = nodeEl.dataset.ref || "";
++      const hasLinks = !isRoot && !!refId && linksOf(refId).length > 0;
++      const node = refId ? nodeById(refId) : null;
++      const actions = [{ act: "add", label: "新增子分支" }];
++      if (!isRoot) {
++        actions.push({ act: "rename", label: "重命名" });
++        actions.push({ act: "note", label: (node && node.note) ? "编辑说明" : "说明" });
++        actions.push({ act: "link", label: "连线" });
++      }
++      if (hasLinks) actions.push({ act: "unlink", label: "取消连线" });
++      const inserts = (!isRoot && refId)
++        ? state.catalogInserts.filter(ins =>
++            ins.catalog === state.currentCatalogId && ins.node === refId &&
++            (!logoTarget || ins.target === logoTarget))
++        : [];
++      if (inserts.length) {
++        const targetCat = state.catalogs.find(c => c.id === inserts[0].target);
++        actions.push({
++          act: "unpin",
++          label: inserts.length > 1
++            ? "移除目录标识（" + inserts.length + "）"
++            : "移除目录标识" + (targetCat ? "「" + targetCat.name + "」" : "")
++        });
++      }
++      if (!isRoot) actions.push({ act: "delete", label: "删除", danger: true });
++      openTouchSheet(node ? node.name : "节点操作", actions, { type: "node", refId, unpinTarget: logoTarget });
++    }
++
++    // 长按检测：仅 pointerType === "touch"；按住 ≥500ms 且位移 ≤10px 触发
++    const LONG_PRESS_MS = 500;
++    const LONG_PRESS_SLOP = 10;
++    let longPressTimer = null;
++    let longPressInfo = null;
++    let lastTouchAt = 0; // 最近一次触屏交互时间：用于吞掉长按引出的系统 contextmenu
++    function markTouchActive() { lastTouchAt = Date.now(); }
++    function cancelLongPress() {
++      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
++      longPressInfo = null;
++    }
++    mindmapStage.addEventListener("pointerdown", e => {
++      cancelLongPress();
++      swallowNextClick = false; // 新手势开始，清掉可能残留的吞点击标记
++      if (e.pointerType !== "touch") return;
++      markTouchActive();
++      if (e.target.closest(".node-inline-input, .node-note-edit, .mm-inline-add, .ctx-menu, .touch-sheet, .mm-modal")) return;
++      longPressInfo = { x: e.clientX, y: e.clientY, target: e.target };
++      longPressTimer = setTimeout(fireLongPress, LONG_PRESS_MS);
++    }, true);
++    mindmapStage.addEventListener("pointermove", e => {
++      if (!longPressInfo) return;
++      if (Math.hypot(e.clientX - longPressInfo.x, e.clientY - longPressInfo.y) > LONG_PRESS_SLOP) cancelLongPress();
++    }, true);
++    mindmapStage.addEventListener("pointerup", e => {
++      if (e.pointerType === "touch") markTouchActive();
++      cancelLongPress();
++    }, true);
++    mindmapStage.addEventListener("pointercancel", cancelLongPress, true);
++
++    // 长按开始（弹抽屉）后吞掉随后的一次 click：轻点=打卡，绝不能被长按误触
++    let swallowNextClick = false;
++    document.addEventListener("click", e => {
++      if (!swallowNextClick) return;
++      swallowNextClick = false;
++      e.preventDefault();
++      e.stopPropagation();
++    }, true);
++
++    function fireLongPress() {
++      const info = longPressInfo;
++      longPressInfo = null;
++      if (!info) return;
++      markTouchActive();
++      if (panDrag && !panDrag.moved) endPan(null); // 长按不再当平移
++      swallowNextClick = true;
++      suppressNextTreeClick = true;
++      const el = info.target;
++      const hitLink = el.closest ? el.closest(".mindmap-link-hit") : null;
++      if (hitLink && hitLink.dataset.linkA && hitLink.dataset.linkB) {
++        openTouchSheet("任务连线", [{ act: "delete-link", label: "删除该连线", danger: true }],
++          { type: "link", a: hitLink.dataset.linkA, b: hitLink.dataset.linkB });
++        return;
++      }
++      const nodeEl = el.closest ? el.closest(".mm-node") : null;
++      if (nodeEl) {
++        const logoEl = el.closest(".catalog-logo");
++        openNodeTouchSheet(nodeEl, logoEl && logoEl.dataset.catalogTarget ? logoEl.dataset.catalogTarget : "");
++        return;
++      }
++      if (linkMode) { exitLinkMode("已取消连线操作"); return; }
++      // 点空白处长按：新增一级分支（与桌面右键空白语义一致）
++      openTouchSheet("空白处", [{ act: "add-root", label: "新增一级分支" }], { type: "blank" });
++    }
++
+     function openMenu(e, nodeEl) {
+       e.preventDefault();
+       e.stopPropagation();
+@@ -2700,8 +3041,16 @@
+         const msg = kids.length
+           ? `「${node.name}」下的子分支将升到上一级，完成状态保留。确定删除？`
+           : `确定删除「${node.name}」？`;
+-        if (!confirm(msg)) return;
++        // 自定义确认弹窗（Promise 化）替代原生 confirm：取消则不删
++        confirmDialog(msg, { title: "删除节点", confirmText: "删除" })
++          .then(ok => { if (ok) doDeleteNode(nodeId); });
++        return;
+       }
++      doDeleteNode(nodeId);
++    }
++    function doDeleteNode(nodeId) {
++      const node = nodeById(nodeId);
++      if (!node) return;
+       const newParent = node.parentId || null;
+       for (const n of state.nodes) {
+         if (n.parentId === node.id) n.parentId = newParent;
+@@ -2722,6 +3071,7 @@
+         ins => !(ins.catalog === state.currentCatalogId && ins.node === node.id)
+       );
+       save(); render();
++      showToast(`已删除「${node.name}」`, "success"); // 轻量结果反馈
+     }
+ 
+     catTree.addEventListener("click", e => {
+@@ -2803,6 +3153,8 @@
+     ctxMenu.addEventListener("contextmenu", e => e.preventDefault());
+ 
+     mindmapStage.addEventListener("contextmenu", e => {
++      // 触屏长按会引出系统 contextmenu：只阻止，不弹桌面菜单（触屏走底部抽屉）
++      if (Date.now() - lastTouchAt < 1200) { e.preventDefault(); e.stopPropagation(); return; }
+       const hitLink = e.target.closest(".mindmap-link-hit");
+       if (hitLink && hitLink.dataset.linkA && hitLink.dataset.linkB) {
+         openLinkMenu(e, hitLink.dataset.linkA, hitLink.dataset.linkB);
+@@ -2848,15 +3200,35 @@
+     // ---------- 空白处拖动画布；节点拖拽仍用于调整层级 ----------
+     // 连线模式下拖动/平移画布不退出连线模式：pointerdown 只开始平移，
+     // 是否当作「点击空白取消连线」推迟到 pointerup，按位移阈值判定。
++    // 触屏：单指拖动 = 平移；双指捏合 = 围绕双指中点缩放（范围沿用 zoomMin..ZOOM_MAX）
++    const touchPts = new Map(); // 参与手势的触点（pointerId → 屏幕坐标）
++    let pinchBase = null;       // 捏合基线：初始两指距离 / 中点 / 当时 scale 与 pan
++
+     mindmapStage.addEventListener("pointerdown", e => {
+       if (e.button !== 0) return;
+-      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .node-note-edit, .ctx-menu")) return;
++      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .node-note-edit, .ctx-menu, .touch-sheet, .mm-modal")) return;
++      if (e.pointerType === "touch") {
++        touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
++        try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
++        if (touchPts.size >= 2) {
++          // 第二指落下：进入捏合，取消单指平移
++          panDrag = null;
++          mindmapStage.classList.add("panning");
++          beginPinchBase();
++          e.preventDefault();
++          return;
++        }
++      }
+       panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, moved: false };
+       mindmapStage.classList.add("panning");
+       try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
+       e.preventDefault();
+     });
+     mindmapStage.addEventListener("pointermove", e => {
++      if (e.pointerType === "touch" && touchPts.has(e.pointerId)) {
++        touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
++        if (pinchBase && touchPts.size >= 2) { applyPinch(); return; }
++      }
+       if (!panDrag) return;
+       pan.x = panDrag.ox + (e.clientX - panDrag.sx);
+       pan.y = panDrag.oy + (e.clientY - panDrag.sy);
+@@ -2864,6 +3236,34 @@
+       clampPan();
+       applyPan();
+     });
++    function beginPinchBase() {
++      const pts = [...touchPts.values()];
++      const rect = mindmapStage.getBoundingClientRect();
++      pinchBase = {
++        d0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
++        s0: scale,
++        px0: pan.x, py0: pan.y,
++        mx0: (pts[0].x + pts[1].x) / 2 - rect.left,
++        my0: (pts[0].y + pts[1].y) / 2 - rect.top
++      };
++    }
++    // 捏合缩放：scale = s0 × (当前两指距 / 初始两指距)，并让初始中点指向的内容
++    // 始终跟随当前双指中点（zoom-to-midpoint，双指拖动平移二合一）
++    function applyPinch() {
++      const pts = [...touchPts.values()];
++      const rect = mindmapStage.getBoundingClientRect();
++      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
++      const mx = (pts[0].x + pts[1].x) / 2 - rect.left;
++      const my = (pts[0].y + pts[1].y) / 2 - rect.top;
++      const next = Math.min(ZOOM_MAX, Math.max(zoomMin, pinchBase.s0 * (d / pinchBase.d0)));
++      const cx = (pinchBase.mx0 - pinchBase.px0) / pinchBase.s0;
++      const cy = (pinchBase.my0 - pinchBase.py0) / pinchBase.s0;
++      scale = next;
++      pan.x = mx - cx * scale;
++      pan.y = my - cy * scale;
++      clampPan();
++      applyPan();
++    }
+     function endPan(e) {
+       if (!panDrag) return;
+       const wasBlankClick = !panDrag.moved; // 几乎没移动的单击才算点击空白；平移不取消连线
+@@ -2874,8 +3274,28 @@
+       }
+       if (wasBlankClick && linkMode) exitLinkMode("已取消连线操作");
+     }
+-    mindmapStage.addEventListener("pointerup", endPan);
+-    mindmapStage.addEventListener("pointercancel", endPan);
++    function handleStagePointerUp(e) {
++      if (e.pointerType === "touch" && touchPts.delete(e.pointerId)) {
++        if (pinchBase) {
++          if (touchPts.size < 2) {
++            pinchBase = null;
++            const rest = [...touchPts.values()][0];
++            if (rest) {
++              // 剩一指继续拖动 = 平移（moved 预置 true，不当作空白点击）
++              panDrag = { sx: rest.x, sy: rest.y, ox: pan.x, oy: pan.y, moved: true };
++            } else {
++              mindmapStage.classList.remove("panning");
++            }
++          }
++          return;
++        }
++        endPan(e);
++        return;
++      }
++      endPan(e);
++    }
++    mindmapStage.addEventListener("pointerup", handleStagePointerUp);
++    mindmapStage.addEventListener("pointercancel", handleStagePointerUp);
+ 
+     // ---------- 滚轮缩放（以鼠标位置为中心） ----------
+     mindmapStage.addEventListener("wheel", e => {
+@@ -3085,12 +3505,19 @@
+ 
+     function deleteCatalog(id) {
+       if (state.catalogs.length <= 1) {
+-        alert("至少要保留一个目录，不能删除。");
++        showToast("至少要保留一个目录，不能删除。", "error"); // 替代原生 alert
+         return;
+       }
+       const cat = state.catalogs.find(c => c.id === id);
+       if (!cat) return;
+-      if (!confirm(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`)) return;
++      // 自定义确认弹窗（Promise 化）替代原生 confirm：取消则不删
++      confirmDialog(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`,
++        { title: "删除目录", confirmText: "删除" })
++        .then(ok => { if (ok) doDeleteCatalog(id); });
++    }
++    function doDeleteCatalog(id) {
++      const cat = state.catalogs.find(c => c.id === id);
++      if (!cat) return;
+       if (cat.id === NEURCROSS_CATALOG_ID || cat.name === NEURCROSS_CATALOG_NAME) {
+         state.neurCrossHidden = true; // 删除要能持久，刷新后不再自动补回
+       }
+@@ -3175,6 +3602,7 @@
+     }
+ 
+     catalogCollapseBtn.addEventListener("click", () => {
++      if (isMobileLayout()) { setDrawerOpen(false); return; } // 移动端抽屉只关，不持久化桌面侧栏状态
+       state.sidebarOpen = false;
+       save();
+       applySidebarOpen();
+@@ -3186,10 +3614,25 @@
+     });
+     catalogAddBtn.addEventListener("click", () => createCatalog());
+ 
++    // ---------- 移动端（视口 <760px）：目录侧栏 = 汉堡按钮呼出的可收起抽屉 ----------
++    const mobileMenuBtn = document.getElementById("mobileMenuBtn");
++    const drawerMask = document.getElementById("drawerMask");
++    const mqMobile = window.matchMedia("(max-width: 759px)");
++    function isMobileLayout() { return mqMobile.matches; }
++    function setDrawerOpen(open) {
++      catalogSidebar.classList.toggle("drawer-open", open);
++      drawerMask.hidden = !(open && isMobileLayout());
++    }
++    mobileMenuBtn.addEventListener("click", () => setDrawerOpen(true));
++    drawerMask.addEventListener("click", () => setDrawerOpen(false));
++    mqMobile.addEventListener("change", () => { if (!isMobileLayout()) setDrawerOpen(false); });
++
+     catalogList.addEventListener("click", e => {
+       const li = e.target.closest(".catalog-item");
+       if (!li) return;
+       if (e.target.closest(".catalog-rename-input")) return;
++      // 移动端：点目录项/删除即收起抽屉（点 ✎ 改名除外，要留在抽屉里编辑）
++      if (isMobileLayout() && !e.target.closest(".catalog-item-rename")) setDrawerOpen(false);
+       if (e.target.closest(".catalog-item-rename")) {
+         const cat = state.catalogs.find(c => c.id === li.dataset.catId);
+         if (cat) startCatalogRename(li, cat);

@@ -1,0 +1,227 @@
+{
+  "phase0_baseline": {
+    "catalogs": 1,
+    "catalogId": "cat_test",
+    "nodeCount": 10,
+    "linkCount": 3,
+    "a1a2a3": [
+      "false/",
+      "false/",
+      "false/"
+    ],
+    "stackLen": 1,
+    "historyIndex": 0,
+    "undoDisabled": true,
+    "redoDisabled": true,
+    "undoAria": "撤销上一步操作",
+    "redoAria": "重做已撤销的操作",
+    "undoTitle": "撤销上一步（Ctrl+Z）",
+    "redoTitle": "重做（Ctrl+Shift+Z 或 Ctrl+Y）",
+    "enumerableStateKeys": [
+      "catalogInserts",
+      "catalogs",
+      "currentCatalogId",
+      "neurCrossHidden",
+      "sidebarOpen",
+      "treeVersion"
+    ],
+    "nodesDescr": {
+      "enumerable": false,
+      "hasGet": true
+    },
+    "snapshotKeys": [
+      "catalogInserts",
+      "catalogs",
+      "currentCatalogId",
+      "neurCrossHidden",
+      "treeVersion"
+    ]
+  },
+  "phaseA_afterCheck": {
+    "a1": "true/2026-11-20 18:08",
+    "a2": "true/2026-11-20 18:08",
+    "a3": "true/2026-11-20 18:08",
+    "a": "false/",
+    "stackLen": 2,
+    "historyIndex": 1,
+    "undoDisabled": false,
+    "redoDisabled": true
+  },
+  "phaseA_afterUndo": {
+    "a1": "false/",
+    "a2": "false/",
+    "a3": "false/",
+    "stackLen": 2,
+    "historyIndex": 0,
+    "undoDisabled": true,
+    "redoDisabled": false,
+    "domDoneButtons": 0,
+    "lsMatchesLive": true,
+    "lsA1": "false/"
+  },
+  "phaseA_tamperRedo": {
+    "a1": "true/2026-11-20 18:08",
+    "a2": "true/2026-11-20 18:08",
+    "a3": "true/2026-11-20 18:08"
+  },
+  "phaseA_afterRedoShiftZ": {
+    "a1": "true/2026-11-20 18:08",
+    "a2": "true/2026-11-20 18:08",
+    "a3": "true/2026-11-20 18:08",
+    "historyIndex": 1,
+    "redoDisabled": true
+  },
+  "phaseA_afterRedoCtrlY": {
+    "a1": "true/2026-11-20 18:08",
+    "a2": "true/2026-11-20 18:08",
+    "a3": "true/2026-11-20 18:08",
+    "historyIndex": 1
+  },
+  "phaseA_granularity": {
+    "stackAfterBaseline": 1,
+    "stackAfterOneBatchCheck": 2
+  },
+  "phaseA_backToBaseline": "0/false",
+  "phaseB_afterLink": {
+    "links": [
+      "a1-b1",
+      "a2-c1",
+      "a3-c2",
+      "a-b"
+    ],
+    "hasAB": true,
+    "stackLen": 2,
+    "historyIndex": 1
+  },
+  "phaseB_afterDelete": {
+    "nodeCount": 9,
+    "aGone": true,
+    "a1Parent": "p",
+    "a2Parent": "p",
+    "a3Parent": "p",
+    "links": [
+      "a1-b1",
+      "a2-c1",
+      "a3-c2"
+    ],
+    "stackLen": 3,
+    "historyIndex": 2
+  },
+  "phaseB_afterUndo": {
+    "nodeCount": 10,
+    "aBack": true,
+    "aParent": "p",
+    "a1Parent": "a",
+    "a2Parent": "a",
+    "a3Parent": "a",
+    "links": [
+      "a1-b1",
+      "a2-c1",
+      "a3-c2",
+      "a-b"
+    ],
+    "hasAB": true,
+    "domNodeCount": 10,
+    "domHasA": true,
+    "domLinks": 4,
+    "lsAExists": true,
+    "lsLinks": [
+      "a1-b1",
+      "a2-c1",
+      "a3-c2",
+      "a-b"
+    ],
+    "lsEqualsLive": true
+  },
+  "phaseC_start": {
+    "stackLen": 1,
+    "historyIndex": 0,
+    "c2": false
+  },
+  "phaseC_after35": {
+    "stackLen": 31,
+    "historyIndex": 30,
+    "HISTORY_MAX": 31,
+    "c2done": true
+  },
+  "phaseC_undoResults": {
+    "attempts": 32,
+    "succeeded": 30,
+    "lastThree": [
+      1,
+      0,
+      0
+    ]
+  },
+  "phaseC_afterUndos": {
+    "stackLen": 31,
+    "historyIndex": 0,
+    "c2done": true,
+    "c2completedAt": "2026-11-20 18:08",
+    "a3done": true,
+    "undoBtnDisabled": true,
+    "redoBtnDisabled": false
+  },
+  "phaseD_inputFocus": {
+    "inputFocused": true,
+    "before": 0,
+    "after": 0,
+    "unchanged": true,
+    "defaultPrevented": false,
+    "editorStillOpen": true
+  },
+  "phaseD_afterRename": {
+    "name": "子节点 A 改",
+    "stackLen": 2,
+    "historyIndex": 1
+  },
+  "phaseD_afterUndoRename": {
+    "name": "子节点 A",
+    "historyIndex": 0
+  },
+  "phaseE_afterCreate": {
+    "catalogs": 2,
+    "catalogNames": [
+      "测试目录",
+      "新目录"
+    ],
+    "current": "cat_mwoth6u0mfnl",
+    "stackLen": 2,
+    "historyIndex": 1,
+    "domCatalogItems": 2
+  },
+  "phaseE_afterUndo": {
+    "catalogs": 1,
+    "current": "cat_test",
+    "domCatalogItems": 1,
+    "domNodes": 10,
+    "historyIndex": 0
+  },
+  "phaseE_sidebarCollapse": {
+    "stackLen": 2,
+    "historyIndex": 0,
+    "sidebarOpen": false,
+    "lsSidebarOpen": false,
+    "sidebarCollapsedClass": true,
+    "undoDisabled": true
+  },
+  "phaseE_sidebarExpand": {
+    "stackLen": 2,
+    "sidebarOpen": true
+  },
+  "phaseF_restoreMechanics": {
+    "nodesIsCurrentCatalogArray": true,
+    "linksIsCurrentCatalogArray": true,
+    "linkDoneIsCurrentCatalogObject": true,
+    "nodesStillAccessor": true,
+    "nodesEnumerable": false,
+    "snapshotMatchesLive": true,
+    "savedJsonEqualsSnapshot": true,
+    "stateIsNotReplaced": true
+  },
+  "consoleSummary": {
+    "errors": 0,
+    "warns": 0,
+    "samples": []
+  }
+}

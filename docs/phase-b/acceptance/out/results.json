@@ -1,0 +1,728 @@
+{
+  "meta": {
+    "file": "C:\\Users\\25988\\Desktop\\.mindmap-test\\base.html",
+    "fileName": "base.html",
+    "out": "C:\\Users\\25988\\Desktop\\.mindmap-test\\b\\accept\\out",
+    "mobile": false,
+    "viewport": "1440x900",
+    "httpPort": 8806,
+    "cdpPort": 9436,
+    "startedAt": "2026-11-20T10:17:09.697Z",
+    "node": "v24.18.0",
+    "finishedAt": "2026-11-20T10:17:21.446Z"
+  },
+  "cases": {
+    "A1": {
+      "id": "A1",
+      "title": "加载默认树无异常",
+      "checks": [
+        {
+          "id": "ready",
+          "expect": "complete",
+          "actual": "complete",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "nodes",
+          "expect": ">=20(.mm-node)",
+          "actual": 24,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "branches",
+          "expect": ">=18(.mindmap-branch)",
+          "actual": 23,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-page-errors",
+          "expect": "0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 1604,
+          "innerWidth": 1440,
+          "nodeCount": 24,
+          "bodyTextLen": 210,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        },
+        "tree": {
+          "nodeTotal": 24,
+          "visible": 24,
+          "overlapPairs": 8,
+          "pairList": [
+            "nmwkexync69fx<>nmwkey9gw84md",
+            "nmwkey9gw84md<>nmwkeyg24u5em",
+            "nmwiyi34z6iem<>nmwiyi6ogqspx",
+            "nmwkezurhvevm<>nmwkf046xe2ip",
+            "nmwkf046xe2ip<>nmwkf08uatt86",
+            "nmwkf08uatt86<>nmwkf0d77uxqr",
+            "nmwkf0d77uxqr<>nmwkf0i9b3ft6",
+            "nmwiyhmuh3kk8<>nmwiyhrdyz4x1"
+          ],
+          "branchCount": 23,
+          "reverse": 0,
+          "revList": [],
+          "spine": 0,
+          "spineList": []
+        }
+      },
+      "screenshots": [
+        "shots/A1.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 741
+    },
+    "A2": {
+      "id": "A2",
+      "title": "50节点+30字长标题：无重叠/无反向/无竖脊",
+      "checks": [
+        {
+          "id": "nodes50",
+          "expect": "50(数据节点)",
+          "actual": 50,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "titleLen30",
+          "expect": "30字",
+          "actual": 30,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "visible",
+          "expect": "51(50+虚拟根)",
+          "actual": 51,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "overlap=0",
+          "expect": "相邻卡片重叠对数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "reverse=0",
+          "expect": ".mindmap-branch 反向曲线数=0(起点x<终点x)",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "spine=0",
+          "expect": "竖脊 path 数=0(bbox宽<20且高>40)",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "seed": {
+          "reload": true,
+          "nodes": 50,
+          "titleLen": 30
+        },
+        "tree": {
+          "nodeTotal": 51,
+          "visible": 51,
+          "overlapPairs": 0,
+          "pairList": [],
+          "branchCount": 50,
+          "reverse": 0,
+          "revList": [],
+          "spine": 0,
+          "spineList": []
+        }
+      },
+      "screenshots": [
+        "shots/A2.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 689
+    },
+    "A3": {
+      "id": "A3",
+      "title": "打卡切换后虚线端点贴合(≤1.5px)",
+      "checks": [
+        {
+          "id": "drawn-afterOn",
+          "expect": "3条全部画出",
+          "actual": 3,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-afterOn",
+          "expect": "端点到接驳边中点距离≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "drawn-afterOff",
+          "expect": "3条全部画出",
+          "actual": 3,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-afterOff",
+          "expect": "端点到接驳边中点距离≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-missing-card",
+          "expect": "连线端点卡片齐全",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "before": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        },
+        "afterOn": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        },
+        "afterOff": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        }
+      },
+      "screenshots": [
+        "shots/A3.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 1078
+    },
+    "A4": {
+      "id": "A4",
+      "title": "环形JSON(A→B→A)注入刷新不白屏",
+      "checks": [
+        {
+          "id": "ready",
+          "expect": "complete",
+          "actual": "complete",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-white-screen",
+          "expect": "body 文本>0 且节点≥3",
+          "actual": "47/5",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-page-errors",
+          "expect": "0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "usable-toggle",
+          "expect": "打卡状态可翻转",
+          "actual": "false→true",
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 1440,
+          "innerWidth": 1440,
+          "nodeCount": 5,
+          "bodyTextLen": 47,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        }
+      },
+      "screenshots": [
+        "shots/A4.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 854
+    },
+    "A5": {
+      "id": "A5",
+      "title": "删除带连线节点后无悬空link-hit",
+      "checks": [
+        {
+          "id": "menu-open",
+          "expect": "右键菜单打开",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "delete-clicked",
+          "expect": "删除动作已触发",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "node-gone",
+          "expect": "a1 已从 DOM 移除",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "dangling-hit=0",
+          "expect": "无悬空 .mindmap-link-hit",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "stored-links-clean",
+          "expect": "localStorage 连线不含已删节点",
+          "actual": [
+            {
+              "a": "a2",
+              "b": "c1"
+            },
+            {
+              "a": "a3",
+              "b": "c2"
+            }
+          ],
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "open": {
+          "ok": true,
+          "step": "menu-open"
+        },
+        "del": {
+          "ok": true,
+          "step": "clicked-delete"
+        },
+        "settle": {
+          "gone": true,
+          "modalSeen": false,
+          "modalClicked": 0,
+          "native": {
+            "confirm": 1,
+            "alert": 0,
+            "prompt": 0
+          }
+        },
+        "after": {
+          "a1Gone": true,
+          "hitCount": 2,
+          "linkCount": 2,
+          "dangling": [],
+          "storedLinks": [
+            {
+              "a": "a2",
+              "b": "c1"
+            },
+            {
+              "a": "a3",
+              "b": "c2"
+            }
+          ]
+        }
+      },
+      "screenshots": [
+        "shots/A5.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 880
+    },
+    "A6": {
+      "id": "A6",
+      "title": "390×844移动端：无横向滚动/无原生弹窗",
+      "checks": [
+        {
+          "id": "no-h-scroll",
+          "expect": "scrollingElement.scrollWidth≤390",
+          "actual": 949,
+          "pass": false,
+          "note": ""
+        },
+        {
+          "id": "no-native-confirm",
+          "expect": "window.confirm 调用数=0",
+          "actual": 1,
+          "pass": false,
+          "note": ""
+        },
+        {
+          "id": "no-native-alert",
+          "expect": "window.alert 调用数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-native-prompt",
+          "expect": "window.prompt 调用数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "open": {
+          "ok": true,
+          "step": "menu-open"
+        },
+        "del": {
+          "ok": true,
+          "step": "clicked-delete"
+        },
+        "settle": {
+          "gone": true,
+          "modalSeen": false,
+          "modalClicked": 0,
+          "native": {
+            "confirm": 1,
+            "alert": 0,
+            "prompt": 0
+          }
+        },
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 949,
+          "innerWidth": 949,
+          "nodeCount": 10,
+          "bodyTextLen": 136,
+          "native": {
+            "confirm": 1,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        }
+      },
+      "screenshots": [
+        "shots/A6.png"
+      ],
+      "logs": [],
+      "pass": false,
+      "durationMs": 700
+    },
+    "A7": {
+      "id": "A7",
+      "title": "缩放0.3/1/3后A3仍成立",
+      "checks": [
+        {
+          "id": "fit-z030",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "0.3(目标0.3)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z030",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "fit-z100",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "1.044(目标1)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z100",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "fit-z300",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "2.894(目标3)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z300",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "z030": {
+          "targetScale": 0.3,
+          "measuredScale": 0.3,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        },
+        "z100": {
+          "targetScale": 1,
+          "measuredScale": 1.044,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        },
+        "z300": {
+          "targetScale": 3,
+          "measuredScale": 2.894,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        }
+      },
+      "screenshots": [
+        "shots/A7-z030.png",
+        "shots/A7-z100.png",
+        "shots/A7-z300.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 4408
+    },
+    "A8": {
+      "id": "A8",
+      "title": "50节点5次连续打卡耗时与DOM稳定性",
+      "checks": [
+        {
+          "id": "toggles-done",
+          "expect": "5 次打卡全部执行",
+          "actual": 5,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "seed": {
+          "reload": true,
+          "nodes": 50,
+          "titleLen": 30
+        },
+        "rows": [
+          {
+            "id": "b1l0",
+            "ms": 12.6,
+            "dom": 344
+          },
+          {
+            "id": "b2l0",
+            "ms": 11.8,
+            "dom": 345
+          },
+          {
+            "id": "b3l0",
+            "ms": 14.5,
+            "dom": 346
+          },
+          {
+            "id": "b4l0",
+            "ms": 11.7,
+            "dom": 347
+          },
+          {
+            "id": "b5l0",
+            "ms": 8.9,
+            "dom": 348
+          }
+        ],
+        "totalMs": 59.5,
+        "domCounts": [
+          344,
+          345,
+          346,
+          347,
+          348
+        ],
+        "domDelta": 4
+      },
+      "screenshots": [
+        "shots/A8.png"
+      ],
+      "logs": [],
+      "pass": true,
+      "durationMs": 1215
+    }
+  },
+  "summary": {
+    "total": 8,
+    "passed": 7,
+    "failed": [
+      "A6"
+    ],
+    "note": "A2/A3 基线应 PASS（已修复回归项）；A6 原生弹窗断言基线应 FAIL（mobile-ux 未修）"
+  }
+}

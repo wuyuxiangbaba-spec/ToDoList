@@ -1,0 +1,184 @@
+diff --git a/base.html b/b/undo/undo.html
+index b5cf6a1..67a56be 100644
+--- a/base.html
++++ b/b/undo/undo.html
+@@ -110,6 +110,21 @@
+       position: fixed; left: 10px; top: 10px; z-index: 900;
+       padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
+     }
++    /* ===== 页头右侧：撤销 / 重做 ===== */
++    .history-bar {
++      position: fixed; right: 12px; top: 10px; z-index: 900;
++      display: flex; gap: 4px; align-items: center;
++      background: var(--paper); box-shadow: var(--shadow);
++      border: 1px solid var(--line); border-radius: 12px; padding: 4px;
++    }
++    .history-btn {
++      padding: 4px 12px; font-size: 13px; line-height: 1.6;
++      border-color: transparent; background: transparent; color: var(--ink);
++    }
++    .history-btn:hover:not(:disabled) { background: #f7f3eb; }
++    .history-btn:disabled {
++      color: var(--muted); opacity: 0.45; cursor: not-allowed; background: transparent;
++    }
+     /* 目录拖到分支上的落点提示（区别于节点改挂载的虚线框） */
+     .mm-node.cat-drop-over > .node-btn {
+       outline: 2px solid var(--accent); outline-offset: 3px;
+@@ -430,6 +445,12 @@
+ 
+   <button type="button" id="catalogRail" class="catalog-rail ghost" title="展开目录侧栏" hidden>» 目录</button>
+ 
++  <!-- 页头右侧：撤销 / 重做（历史栈实现见脚本「撤销 / 重做（历史栈）」一节） -->
++  <div class="history-bar" id="historyBar" role="toolbar" aria-label="撤销与重做">
++    <button type="button" id="undoBtn" class="history-btn" title="撤销上一步（Ctrl+Z）" aria-label="撤销上一步操作" disabled>↩ 撤销</button>
++    <button type="button" id="redoBtn" class="history-btn" title="重做（Ctrl+Shift+Z 或 Ctrl+Y）" aria-label="重做已撤销的操作" disabled>↪ 重做</button>
++  </div>
++
+   <div id="ctxMenu" class="ctx-menu" hidden>
+     <button type="button" data-act="add">+ 分支</button>
+     <button type="button" data-act="rename">改名</button>
+@@ -1417,7 +1438,10 @@
+       try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+     };
+     function load() { return resolveCatalogState(readStorage()); }
+-    function save() {
++    function save(recordHistory) {
++      // 撤销/重做的入栈钩子：所有会落盘的变更默认同步记一步历史（快照=本次操作后的最终 state）。
++      // 撤销/重做自身与纯视图状态（侧栏折叠/展开）传 false 跳过，避免自我嵌套与噪声步。
++      if (recordHistory !== false) pushHistory();
+       try {
+         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+       } catch (e) {
+@@ -1441,6 +1465,84 @@
+     });
+     state.currentCatalogId = currentCatalog().id;
+ 
++    // ---------- 撤销 / 重做（历史栈） ----------
++    // 快照口径：「一次用户操作完成后」的最终 state，JSON 深拷贝（字符串形式入栈）。
++    // 关于 getter：state 上的 nodes/links/linkDone 是不可枚举访问器（见上方 defineProperties，
++    // JSON.stringify 只序列化可枚举自有属性，因此这三个键不会出现在快照 JSON 里）；
++    // 但它们的底层数据本来就存放在 state.catalogs[i].nodes/links/linkDone 中，
++    // 随整份 JSON 一起被深拷贝，所以快照内容是完整的。
++    // 恢复（restoreSnapshot）不替换 state 对象、也不重定义访问器：只把快照里的
++    // 各数据字段回写进同一个 state（Object.assign），访问器动态读取 state.catalogs，
++    // 自动指向恢复后的当前目录——等效于「刷新了 getter」，无需任何额外处理。
++    // sidebarOpen 是纯视图状态（侧栏折叠/展开不算变更）：快照剔除、恢复时保留现值。
++    const HISTORY_MAX = 31; // 栈深上限 = 基线快照 + 30 步操作（超出丢最旧）
++    let historyStack = [];   // 每步快照的 JSON 字符串；historyStack[historyIndex] 即当前状态
++    let historyIndex = -1;
++    const undoBtn = document.getElementById("undoBtn");
++    const redoBtn = document.getElementById("redoBtn");
++
++    function snapshotState() {
++      // replacer 返回 undefined 的键不会写入 JSON：借此把 sidebarOpen 排除出历史
++      return JSON.stringify(state, (k, v) => (k === "sidebarOpen" ? undefined : v));
++    }
++    function restoreSnapshot(json) {
++      const keepSidebarOpen = state.sidebarOpen;
++      // 快照不含 nodes/links/linkDone 键，Object.assign 不会碰这三个访问器；
++      // catalogs / currentCatalogId / catalogInserts / neurCrossHidden / treeVersion 整体回写
++      Object.assign(state, JSON.parse(json));
++      state.sidebarOpen = keepSidebarOpen;
++      if (!currentCatalog()) state.currentCatalogId = state.catalogs[0].id; // 防御：快照异常时回落
++    }
++    function updateHistoryUi() {
++      if (undoBtn) undoBtn.disabled = historyIndex <= 0;
++      if (redoBtn) redoBtn.disabled = historyIndex >= historyStack.length - 1;
++    }
++    function pushHistory() {
++      const snap = snapshotState();
++      // 状态没变就不入栈（如把节点拖回原父节点、同值提交）：保证「一次操作 = 一步历史」
++      if (historyIndex >= 0 && historyStack[historyIndex] === snap) return;
++      historyStack = historyStack.slice(0, historyIndex + 1); // 新操作会截断撤销后的重做分支
++      historyStack.push(snap);
++      if (historyStack.length > HISTORY_MAX) historyStack.shift(); // 超出上限丢最旧
++      historyIndex = historyStack.length - 1;
++      updateHistoryUi();
++    }
++    // 撤销/重做前先收掉可能悬着的编辑器与浮层，避免它们引用已被恢复掉的对象
++    function closeHistoryAdjacentUi() {
++      if (editor) closeEditor(false);
++      if (catalogRenameClose) catalogRenameClose(false);
++      closeMenu();
++      closeLinkMenu();
++      closeCatMenu();
++      if (linkMode) exitLinkMode();
++    }
++    function undoHistory() {
++      if (historyIndex <= 0) return false;
++      const beforeCatalogId = state.currentCatalogId;
++      closeHistoryAdjacentUi();
++      historyIndex--;
++      restoreSnapshot(historyStack[historyIndex]);
++      if (state.currentCatalogId !== beforeCatalogId) pendingAutoFit = true; // 跨目录恢复时重新 fit 视野
++      save(false); // 恢复结果落盘，但不再入栈
++      render();
++      updateHistoryUi();
++      return true;
++    }
++    function redoHistory() {
++      if (historyIndex >= historyStack.length - 1) return false;
++      const beforeCatalogId = state.currentCatalogId;
++      closeHistoryAdjacentUi();
++      historyIndex++;
++      restoreSnapshot(historyStack[historyIndex]);
++      if (state.currentCatalogId !== beforeCatalogId) pendingAutoFit = true;
++      save(false);
++      render();
++      updateHistoryUi();
++      return true;
++    }
++    if (undoBtn) undoBtn.addEventListener("click", undoHistory);
++    if (redoBtn) redoBtn.addEventListener("click", redoHistory);
++
+     let pan = { x: 0, y: 0 };
+     let scale = 1;
+     let panDrag = null;
+@@ -2506,6 +2608,22 @@
+       }
+     });
+ 
++    // ---------- 撤销 / 重做快捷键 ----------
++    // Ctrl/Cmd+Z 撤销；Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做。
++    // 输入框（节点改名 / 新增分支 / 说明 / 目录改名）聚焦时不拦截，交给浏览器原生文本编辑。
++    document.addEventListener("keydown", e => {
++      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
++      const key = (e.key || "").toLowerCase();
++      const wantUndo = key === "z" && !e.shiftKey;
++      const wantRedo = (key === "z" && e.shiftKey) || key === "y";
++      if (!wantUndo && !wantRedo) return;
++      const t = e.target;
++      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
++      e.preventDefault();
++      if (wantUndo) undoHistory();
++      else redoHistory();
++    });
++
+     function openMenu(e, nodeEl) {
+       e.preventDefault();
+       e.stopPropagation();
+@@ -3176,12 +3294,12 @@
+ 
+     catalogCollapseBtn.addEventListener("click", () => {
+       state.sidebarOpen = false;
+-      save();
++      save(false); // 折叠侧栏是纯视图状态：照常落盘，但不入撤销历史
+       applySidebarOpen();
+     });
+     catalogRailBtn.addEventListener("click", () => {
+       state.sidebarOpen = true;
+-      save();
++      save(false); // 展开侧栏同上：不入历史
+       applySidebarOpen();
+     });
+     catalogAddBtn.addEventListener("click", () => createCatalog());
+@@ -3273,6 +3391,9 @@
+     // 不再从顶端 1:1 绘制导致长时间无响应
+     pendingAutoFit = true;
+     render();
++    // 基线快照：加载完成后的初始状态作为历史起点（它是「第 0 步」，不占操作步数）
++    pushHistory();
++    updateHistoryUi();
+   </script>
+ </body>
+ </html>

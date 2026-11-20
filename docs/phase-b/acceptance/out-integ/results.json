@@ -1,0 +1,927 @@
+{
+  "meta": {
+    "file": "C:\\Users\\25988\\Desktop\\.mindmap-test\\x.html",
+    "fileName": "x.html",
+    "out": "C:\\Users\\25988\\Desktop\\.mindmap-test\\b\\accept\\out-integ",
+    "mobile": false,
+    "viewport": "1440x900",
+    "httpPort": 8806,
+    "cdpPort": 9436,
+    "startedAt": "2026-11-20T10:32:34.501Z",
+    "node": "v24.18.0",
+    "finishedAt": "2026-11-20T10:32:47.741Z"
+  },
+  "cases": {
+    "A1": {
+      "id": "A1",
+      "title": "加载默认树无异常",
+      "checks": [
+        {
+          "id": "ready",
+          "expect": "complete",
+          "actual": "complete",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "nodes",
+          "expect": ">=20(.mm-node)",
+          "actual": 25,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "branches",
+          "expect": ">=18(.mindmap-branch)",
+          "actual": 24,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-page-errors",
+          "expect": "0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 1440,
+          "innerWidth": 1440,
+          "nodeCount": 25,
+          "bodyTextLen": 600,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        },
+        "tree": {
+          "nodeTotal": 25,
+          "visible": 25,
+          "overlapPairs": 0,
+          "pairList": [],
+          "branchCount": 24,
+          "reverse": 0,
+          "revList": [],
+          "spine": 0,
+          "spineList": []
+        }
+      },
+      "screenshots": [
+        "shots/A1.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 708
+    },
+    "A2": {
+      "id": "A2",
+      "title": "50节点+30字长标题：无重叠/无反向/无竖脊",
+      "checks": [
+        {
+          "id": "nodes50",
+          "expect": "50(数据节点)",
+          "actual": 50,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "titleLen30",
+          "expect": "30字",
+          "actual": 30,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "visible",
+          "expect": "51(50+虚拟根)",
+          "actual": 51,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "overlap=0",
+          "expect": "相邻卡片重叠对数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "reverse=0",
+          "expect": ".mindmap-branch 反向曲线数=0(起点x<终点x)",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "spine=0",
+          "expect": "竖脊 path 数=0(bbox宽<20且高>40)",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "seed": {
+          "reload": true,
+          "nodes": 50,
+          "titleLen": 30
+        },
+        "tree": {
+          "nodeTotal": 51,
+          "visible": 51,
+          "overlapPairs": 0,
+          "pairList": [],
+          "branchCount": 50,
+          "reverse": 0,
+          "revList": [],
+          "spine": 0,
+          "spineList": []
+        }
+      },
+      "screenshots": [
+        "shots/A2.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 687
+    },
+    "A3": {
+      "id": "A3",
+      "title": "打卡切换后虚线端点贴合(≤1.5px)",
+      "checks": [
+        {
+          "id": "drawn-afterOn",
+          "expect": "3条全部画出",
+          "actual": 3,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-afterOn",
+          "expect": "端点到接驳边中点距离≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "drawn-afterOff",
+          "expect": "3条全部画出",
+          "actual": 3,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-afterOff",
+          "expect": "端点到接驳边中点距离≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-missing-card",
+          "expect": "连线端点卡片齐全",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "before": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        },
+        "afterOn": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        },
+        "afterOff": {
+          "drawn": 3,
+          "hits": 3,
+          "linksTotal": 3,
+          "per": [
+            {
+              "a": "a1",
+              "b": "b1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a2",
+              "b": "c1",
+              "d0": 0,
+              "d1": 0
+            },
+            {
+              "a": "a3",
+              "b": "c2",
+              "d0": 0,
+              "d1": 0
+            }
+          ],
+          "maxDist": 0
+        }
+      },
+      "screenshots": [
+        "shots/A3.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 1031
+    },
+    "A4": {
+      "id": "A4",
+      "title": "环形JSON(A→B→A)注入刷新不白屏",
+      "checks": [
+        {
+          "id": "ready",
+          "expect": "complete",
+          "actual": "complete",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-white-screen",
+          "expect": "body 文本>0 且节点≥3",
+          "actual": "91/5",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-page-errors",
+          "expect": "0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "usable-toggle",
+          "expect": "打卡状态可翻转",
+          "actual": "false→true",
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 1440,
+          "innerWidth": 1440,
+          "nodeCount": 5,
+          "bodyTextLen": 91,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        }
+      },
+      "screenshots": [
+        "shots/A4.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 850
+    },
+    "A5": {
+      "id": "A5",
+      "title": "删除带连线节点后无悬空link-hit",
+      "checks": [
+        {
+          "id": "menu-open",
+          "expect": "右键菜单打开",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "delete-clicked",
+          "expect": "删除动作已触发",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "node-gone",
+          "expect": "a1 已从 DOM 移除",
+          "actual": true,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "dangling-hit=0",
+          "expect": "无悬空 .mindmap-link-hit",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "stored-links-clean",
+          "expect": "localStorage 连线不含已删节点",
+          "actual": [
+            {
+              "a": "a2",
+              "b": "c1"
+            },
+            {
+              "a": "a3",
+              "b": "c2"
+            }
+          ],
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "open": {
+          "ok": true,
+          "step": "menu-open"
+        },
+        "del": {
+          "ok": true,
+          "step": "clicked-delete"
+        },
+        "settle": {
+          "gone": true,
+          "modalSeen": true,
+          "modalClicked": 1,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          }
+        },
+        "after": {
+          "a1Gone": true,
+          "hitCount": 2,
+          "linkCount": 2,
+          "dangling": [],
+          "storedLinks": [
+            {
+              "a": "a2",
+              "b": "c1"
+            },
+            {
+              "a": "a3",
+              "b": "c2"
+            }
+          ]
+        }
+      },
+      "screenshots": [
+        "shots/A5.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 955
+    },
+    "A6": {
+      "id": "A6",
+      "title": "390×844移动端：无横向滚动/无原生弹窗",
+      "checks": [
+        {
+          "id": "no-h-scroll",
+          "expect": "scrollingElement.scrollWidth≤390",
+          "actual": 949,
+          "pass": false,
+          "note": ""
+        },
+        {
+          "id": "no-native-confirm",
+          "expect": "window.confirm 调用数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-native-alert",
+          "expect": "window.alert 调用数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "no-native-prompt",
+          "expect": "window.prompt 调用数=0",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "open": {
+          "ok": true,
+          "step": "menu-open"
+        },
+        "del": {
+          "ok": true,
+          "step": "clicked-delete"
+        },
+        "settle": {
+          "gone": true,
+          "modalSeen": true,
+          "modalClicked": 1,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          }
+        },
+        "env": {
+          "readyState": "complete",
+          "scrollWidth": 949,
+          "innerWidth": 949,
+          "nodeCount": 10,
+          "bodyTextLen": 208,
+          "native": {
+            "confirm": 0,
+            "alert": 0,
+            "prompt": 0
+          },
+          "pageErrors": []
+        }
+      },
+      "screenshots": [
+        "shots/A6.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": false,
+      "durationMs": 825
+    },
+    "A7": {
+      "id": "A7",
+      "title": "缩放0.3/1/3后A3仍成立",
+      "checks": [
+        {
+          "id": "fit-z030",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "0.3(目标0.3)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z030",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "fit-z100",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "1.044(目标1)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z100",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "fit-z300",
+          "expect": "缩放到达目标(±6%)",
+          "actual": "2.894(目标3)",
+          "pass": true,
+          "note": ""
+        },
+        {
+          "id": "maxdist-z300",
+          "expect": "端点贴合≤1.5px",
+          "actual": 0,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "z030": {
+          "targetScale": 0.3,
+          "measuredScale": 0.3,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        },
+        "z100": {
+          "targetScale": 1,
+          "measuredScale": 1.044,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        },
+        "z300": {
+          "targetScale": 3,
+          "measuredScale": 2.894,
+          "links": {
+            "drawn": 3,
+            "hits": 3,
+            "linksTotal": 3,
+            "per": [
+              {
+                "a": "a1",
+                "b": "b1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a2",
+                "b": "c1",
+                "d0": 0,
+                "d1": 0
+              },
+              {
+                "a": "a3",
+                "b": "c2",
+                "d0": 0,
+                "d1": 0
+              }
+            ],
+            "maxDist": 0
+          }
+        }
+      },
+      "screenshots": [
+        "shots/A7-z030.png",
+        "shots/A7-z100.png",
+        "shots/A7-z300.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 4361
+    },
+    "A8": {
+      "id": "A8",
+      "title": "50节点5次连续打卡耗时与DOM稳定性",
+      "checks": [
+        {
+          "id": "toggles-done",
+          "expect": "5 次打卡全部执行",
+          "actual": 5,
+          "pass": true,
+          "note": ""
+        }
+      ],
+      "metrics": {
+        "seed": {
+          "reload": true,
+          "nodes": 50,
+          "titleLen": 30
+        },
+        "rows": [
+          {
+            "id": "b1l0",
+            "ms": 8.7,
+            "dom": 416
+          },
+          {
+            "id": "b2l0",
+            "ms": 16.2,
+            "dom": 417
+          },
+          {
+            "id": "b3l0",
+            "ms": 7.2,
+            "dom": 418
+          },
+          {
+            "id": "b4l0",
+            "ms": 12.6,
+            "dom": 419
+          },
+          {
+            "id": "b5l0",
+            "ms": 6.6,
+            "dom": 420
+          }
+        ],
+        "totalMs": 51.3,
+        "domCounts": [
+          416,
+          417,
+          418,
+          419,
+          420
+        ],
+        "domDelta": 4
+      },
+      "screenshots": [
+        "shots/A8.png"
+      ],
+      "logs": [
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-192.png"
+        },
+        {
+          "kind": "log.error",
+          "text": "A bad HTTP response code (404) was received when fetching the script."
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/manifest.webmanifest"
+        },
+        {
+          "kind": "log.error",
+          "text": "Manifest fetch from http://127.0.0.1:8806/manifest.webmanifest failed, code 404 @ http://127.0.0.1:8806/x.html"
+        },
+        {
+          "kind": "log.error",
+          "text": "Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8806/icon-512.png"
+        }
+      ],
+      "pass": true,
+      "durationMs": 1064
+    }
+  },
+  "summary": {
+    "total": 8,
+    "passed": 7,
+    "failed": [
+      "A6"
+    ],
+    "note": "A2/A3 基线应 PASS（已修复回归项）；A6 原生弹窗断言基线应 FAIL（mobile-ux 未修）"
+  }
+}

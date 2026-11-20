@@ -1,0 +1,494 @@
+diff --git a/base.html "b/b\\pwa\\pwa.html"
+index b5cf6a1..6677db8 100644
+--- a/base.html
++++ "b/b\\pwa\\pwa.html"
+@@ -4,20 +4,80 @@
+   <meta charset="UTF-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+   <title>综合签到打卡器</title>
++  <!-- PWA：manifest 与图标全部用相对路径，GitHub Pages 子路径部署同样生效 -->
++  <link rel="manifest" href="manifest.webmanifest" />
++  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
++  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
++  <link rel="apple-touch-icon" href="icon-192.png" />
++  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3efe6" />
++  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#15171c" />
++  <script>
++    // 主题引导（放 <head> 里尽早执行，避免暗色用户先闪一下浅色）：
++    // 偏好存独立 key signin-tracker-theme（"light" | "dark"），未存过时跟随系统
++    // prefers-color-scheme；只写 <html data-theme>，不碰签到数据（signin-tracker-v1）。
++    (function () {
++      var saved = null;
++      try { saved = localStorage.getItem("signin-tracker-theme"); } catch (e) {}
++      var dark = saved === "dark" || (!saved && window.matchMedia &&
++        window.matchMedia("(prefers-color-scheme: dark)").matches);
++      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
++    })();
++  </script>
+   <style>
++    /* 主题色浅/深成对定义（浅色暖纸感保留为默认，暗色 = <html data-theme="dark">）：
++       新增的 --branch-done / --branch-todo 同时供 JS 画分支与目录圈取色
++       （见 refreshBranchHexes），保证暗色下 DONE_HEX/TODO_HEX 依然可读。 */
+     :root {
+       --bg: #f3efe6;
++      --bg-tint: #efe6d4;
+       --paper: #fffdf8;
+       --ink: #1e2430;
+       --muted: #6b7280;
+       --line: #e6dfd2;
+       --accent: #1f6b4a;
+       --accent-soft: #e7f4ee;
++      --accent-soft-strong: #dceee4;
+       --danger: #b42318;
+       --danger-soft: #fdeeea;
++      --node-done-border: #bfe0cf;
++      --node-todo-border: #f0c9c6;
++      --btn-bg: #ffffff;
++      --btn-bg-hover: #f7f3eb;
++      --tint-a: rgba(31, 107, 74, 0.04);
++      --tint-b: rgba(180, 35, 24, 0.03);
++      --branch-done: #1f6b4a; /* DONE_HEX 浅色值 */
++      --branch-todo: #b42318; /* TODO_HEX 浅色值 */
++      --hint-bg: #1e2430;
++      --hint-ink: #fffdf8;
+       --shadow: 0 10px 30px rgba(30, 36, 48, 0.07);
+       --radius: 16px;
+     }
++    /* 暗色：暖夜灰底，绿/红整体提亮一档，分支、连线、卡片文字保持可读 */
++    :root[data-theme="dark"] {
++      --bg: #15171c;
++      --bg-tint: #1e2127;
++      --paper: #1d2026;
++      --ink: #e8e3d9;
++      --muted: #a0a5ac;
++      --line: #34383f;
++      --accent: #5cbd8d;
++      --accent-soft: #21362b;
++      --accent-soft-strong: #2b4335;
++      --danger: #e08373;
++      --danger-soft: #3b2a25;
++      --node-done-border: #3d5b4b;
++      --node-todo-border: #6b4239;
++      --btn-bg: #262a31;
++      --btn-bg-hover: #2f343c;
++      --tint-a: rgba(92, 189, 141, 0.05);
++      --tint-b: rgba(224, 131, 115, 0.04);
++      --branch-done: #52b387; /* 暗色下提亮的 DONE_HEX */
++      --branch-todo: #e08373; /* 暗色下提亮的 TODO_HEX */
++      --hint-bg: #e8e3d9;
++      --hint-ink: #1d2026;
++      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
++      --radius: 16px;
++    }
+     * { box-sizing: border-box; font-weight: 400; }
+     html, body { margin: 0; height: 100%; }
+     body, button, input, select {
+@@ -26,7 +86,7 @@
+     }
+     body {
+       background:
+-        radial-gradient(900px 400px at 10% -10%, #efe6d4 0%, transparent 55%),
++        radial-gradient(900px 400px at 10% -10%, var(--bg-tint) 0%, transparent 55%),
+         var(--bg);
+       color: var(--ink);
+       overflow: hidden;
+@@ -39,10 +99,10 @@
+     }
+     button {
+       cursor: pointer; border: 1px solid var(--line);
+-      background: #fff; color: var(--ink); border-radius: 10px;
++      background: var(--btn-bg); color: var(--ink); border-radius: 10px;
+       padding: 6px 10px;
+     }
+-    button:hover { background: #f7f3eb; }
++    button:hover { background: var(--btn-bg-hover); }
+     button.ghost { background: transparent; }
+ 
+     /* ===== 左侧目录侧栏 ===== */
+@@ -64,6 +124,8 @@
+     }
+     .catalog-side-title { font-size: 15px; letter-spacing: 3px; color: var(--ink); }
+     .catalog-collapse-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
++    /* 主题切换按钮：与侧栏收起按钮同款小圆钮（🌙 暗色 / ☀️ 浅色） */
++    .theme-toggle-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
+     .catalog-list {
+       flex: 1; min-height: 0; margin: 0; padding: 4px 8px;
+       list-style: none; overflow-y: auto; overflow-x: hidden;
+@@ -76,9 +138,9 @@
+       color: var(--ink); background: transparent;
+       white-space: nowrap;
+     }
+-    .catalog-item:hover { background: #f7f3eb; }
++    .catalog-item:hover { background: var(--btn-bg-hover); }
+     .catalog-item.active {
+-      background: var(--accent-soft); border-color: #bfe0cf; color: var(--accent);
++      background: var(--accent-soft); border-color: var(--node-done-border); color: var(--accent);
+     }
+     .catalog-item.dragging-cat { opacity: 0.5; }
+     .catalog-item-name {
+@@ -98,14 +160,14 @@
+     .catalog-item .catalog-rename-input {
+       flex: 1; min-width: 0; font-family: inherit; font-size: 13.5px;
+       border: 1.5px solid var(--accent); border-radius: 8px;
+-      padding: 3px 6px; outline: none; background: #fff; color: var(--ink);
++      padding: 3px 6px; outline: none; background: var(--btn-bg); color: var(--ink);
+     }
+     .catalog-side-foot { padding: 10px 12px 14px; white-space: nowrap; }
+     .catalog-add-btn {
+       width: 100%; padding: 8px 10px;
+-      color: var(--accent); border-color: #bfe0cf; background: var(--accent-soft);
++      color: var(--accent); border-color: var(--node-done-border); background: var(--accent-soft);
+     }
+-    .catalog-add-btn:hover { background: #dceee4; }
++    .catalog-add-btn:hover { background: var(--accent-soft-strong); }
+     .catalog-rail {
+       position: fixed; left: 10px; top: 10px; z-index: 900;
+       padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
+@@ -136,12 +198,12 @@
+       white-space: nowrap;
+     }
+     .catalog-logo.todo {
+-      border: 2px dashed #b42318; /* TODO_HEX：与未完成任务块同色 */
+-      background: var(--danger-soft); color: #b42318;
++      border: 2px dashed var(--branch-todo); /* TODO_HEX：与未完成任务块同色 */
++      background: var(--danger-soft); color: var(--branch-todo);
+     }
+     .catalog-logo.done {
+-      border: 2px solid #1f6b4a; /* DONE_HEX：与已完成任务块同色 */
+-      background: var(--accent-soft); color: #1f6b4a;
++      border: 2px solid var(--branch-done); /* DONE_HEX：与已完成任务块同色 */
++      background: var(--accent-soft); color: var(--branch-done);
+     }
+     .catalog-logo:hover { transform: translateY(-1px); }
+     .catalog-logo .catalog-logo-check { font-size: 13px; }
+@@ -156,8 +218,8 @@
+       display: flex;
+       flex-direction: column;
+       background:
+-        radial-gradient(600px 300px at 85% 20%, rgba(31, 107, 74, 0.04), transparent 70%),
+-        radial-gradient(500px 300px at 20% 80%, rgba(180, 35, 24, 0.03), transparent 70%),
++        radial-gradient(600px 300px at 85% 20%, var(--tint-a), transparent 70%),
++        radial-gradient(500px 300px at 20% 80%, var(--tint-b), transparent 70%),
+         var(--paper);
+       border: none;
+       border-radius: 0;
+@@ -214,7 +276,7 @@
+     .node-btn {
+       position: relative;
+       display: inline-flex; align-items: center; gap: 7px;
+-      border: 1.5px solid var(--line); background: #fff;
++      border: 1.5px solid var(--line); background: var(--btn-bg);
+       border-radius: 999px; padding: 6px 14px; font-size: 13.5px;
+       box-shadow: 0 3px 10px rgba(30, 36, 48, 0.05);
+       transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+@@ -229,8 +291,8 @@
+     }
+     .node-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(30, 36, 48, 0.1); }
+     .node-btn.toggle { border-style: dashed; }
+-    .node-btn:not(.done) { background: var(--danger-soft); border-color: #f0c9c6; color: var(--danger); }
+-    .node-btn.done { background: var(--accent-soft); border-color: #bfe0cf; border-style: solid; color: var(--accent); }
++    .node-btn:not(.done) { background: var(--danger-soft); border-color: var(--node-todo-border); color: var(--danger); }
++    .node-btn.done { background: var(--accent-soft); border-color: var(--node-done-border); border-style: solid; color: var(--accent); }
+     .node-btn .state { font-size: 12px; opacity: 0.9; }
+     .node-dot {
+       width: 9px; height: 9px; border-radius: 50%;
+@@ -296,7 +358,7 @@
+       font-size: 13.5px;
+       font-weight: 400;
+       border: 1.5px solid var(--accent);
+-      background: #fff;
++      background: var(--btn-bg);
+       color: var(--ink);
+       border-radius: 999px;
+       padding: 6px 14px;
+@@ -317,7 +379,7 @@
+       font-size: 12px;
+       font-weight: 400;
+       border: 1.5px solid var(--accent);
+-      background: #fff;
++      background: var(--btn-bg);
+       color: var(--ink);
+       border-radius: 10px;
+       padding: 5px 10px;
+@@ -362,20 +424,20 @@
+       padding: 6px 12px;
+       font-size: 13px;
+     }
+-    .ctx-menu button:hover { background: #f7f3eb; }
++    .ctx-menu button:hover { background: var(--btn-bg-hover); }
+     .ctx-menu button.danger { color: var(--danger); }
+     .ctx-menu button.danger:hover { background: var(--danger-soft); }
+ 
+     /* ===== 任务连线（绕障有机曲线虚线，与分支同色系） ===== */
+     .mindmap-link {
+       fill: none;
+-      stroke: #b42318; /* TODO_HEX，与未完成分支同色 */
++      stroke: var(--branch-todo); /* TODO_HEX，与未完成分支同色 */
+       stroke-opacity: 0.82;
+       stroke-width: 2.6;
+       stroke-dasharray: 9 7;
+       stroke-linecap: round;
+     }
+-    .mindmap-link.done { stroke: #1f6b4a; stroke-opacity: 0.85; }
++    .mindmap-link.done { stroke: var(--branch-done); stroke-opacity: 0.85; }
+     /* 虚线加宽透明的点击命中区：让右键好点中；分支/其余 SVG 仍不响应事件 */
+     .mindmap-link-hit {
+       fill: none;
+@@ -395,8 +457,8 @@
+       transform: translateX(-50%);
+       z-index: 1200;
+       max-width: 82vw;
+-      background: var(--ink);
+-      color: #fffdf8;
++      background: var(--hint-bg);
++      color: var(--hint-ink);
+       border-radius: 999px;
+       padding: 8px 18px;
+       font-size: 13px;
+@@ -408,12 +470,25 @@
+     }
+     .link-hint[hidden] { display: none !important; }
+   </style>
++  <script>
++    // 注册 Service Worker（sw.js：network-first，断网兜底走缓存；版本号常量见 sw.js）。
++    // 相对路径注册，GitHub Pages 子路径 / 本地静态服务都可用；
++    // 不支持 SW 的环境（如 file://、about:blank）安静跳过，不影响页面功能。
++    if ("serviceWorker" in navigator) {
++      window.addEventListener("load", function () {
++        navigator.serviceWorker.register("sw.js").catch(function (err) {
++          console.warn("Service Worker 注册失败：", err);
++        });
++      });
++    }
++  </script>
+ </head>
+ <body>
+   <div class="wrap">
+     <aside class="catalog-sidebar" id="catalogSidebar" aria-label="目录侧栏">
+       <div class="catalog-side-head">
+         <span class="catalog-side-title">目录</span>
++        <button type="button" class="ghost theme-toggle-btn" id="themeToggleBtn" title="切换到暗色主题">🌙</button>
+         <button type="button" class="ghost catalog-collapse-btn" id="catalogCollapseBtn" title="收起目录侧栏">«</button>
+       </div>
+       <ul class="catalog-list" id="catalogList"></ul>
+@@ -456,68 +531,116 @@
+     // 含默认树、节点规范化、旧数据迁移（resolveState）与多目录解析
+     // （resolveCatalogState）。catalog-selfcheck.mjs 会抽取本段做迁移自检。
+     const STORAGE_KEY = "signin-tracker-v1";
++    // 默认树 = 中性示例模板（三层：主题 → 方面 → 每日小事），不带任何第三方
++    // App / 商标 / 真实人名地名；每个节点配一句中性说明（note）。
++    // 合规调整只影响「新用户首开」与「仍是旧示例树」的本地数据（见 isLegacySampleOnly），
++    // 存量用户树有迁移守卫保护，不会被这份默认树覆盖。
++    // 节点 id 用 dflt- 前缀：与旧示例集合（LEGACY_SAMPLE_IDS）、用户树根
++    // （USER_ROOT_ID，nmw…）和 NeurCross 预置（nc_…）都不冲突。
+     const DEFAULT_NODES = [
+-      { id: "nmwiyegtzm0v4", name: "昆仑数模", parentId: null, done: false, completedAt: "" },
+-      { id: "nmwiyekmtshvg", name: "上海大学", parentId: null, done: false, completedAt: "" },
+-      { id: "nmwiyes47mg9k", name: "王静", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+-      { id: "nmwiyf1ofag9i", name: "G5二次开发", parentId: "nmwiyes47mg9k", done: false, completedAt: "" },
+-      { id: "nmwiyfd4n5bi5", name: "宋亦诚", parentId: "nmwiyekmtshvg", done: false, completedAt: "" },
+-      { id: "nmwiyfjkrrj1t", name: "有限元作业批改", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+-      { id: "nmwiyg84eqd74", name: "基于标架场的全四边形动网格", parentId: "nmwiyfd4n5bi5", done: false, completedAt: "" },
+-      { id: "nmwiyh6f0uvi5", name: "上机作业@第三周", parentId: "nmwiyfjkrrj1t", done: true, completedAt: "2026-11-17 16:10" },
+-      { id: "nmwiyhe7ow45g", name: "上机作业@第四周", parentId: "nmwiyfjkrrj1t", done: false, completedAt: "" },
+-      { id: "nmwiyhi0un6d9", name: "代码", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+-      { id: "nmwiyhmuh3kk8", name: "算例", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+-      { id: "nmwiyhrdyz4x1", name: "文章本体", parentId: "nmwiyg84eqd74", done: false, completedAt: "" },
+-      { id: "nmwiyhvwukpr5", name: "PPT汇报", parentId: "nmwiyegtzm0v4", done: false, completedAt: "" },
+-      { id: "nmwiyi34z6iem", name: "昆仑的工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+-      { id: "nmwiyi6ogqspx", name: "科研工作", parentId: "nmwiyhvwukpr5", done: false, completedAt: "" },
+-      { id: "nmwkexync69fx", name: "G5输出三角形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+-      { id: "nmwkey9gw84md", name: "程序读取节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+-      { id: "nmwkeyg24u5em", name: "G5读取四边形节点", parentId: "nmwiyf1ofag9i", done: false, completedAt: "" },
+-      { id: "nmwkezurhvevm", name: "读取三角形节点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+-      { id: "nmwkf046xe2ip", name: "布置/光滑标架场", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+-      { id: "nmwkf08uatt86", name: "找奇异点", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+-      { id: "nmwkf0d77uxqr", name: "分块", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" },
+-      { id: "nmwkf0i9b3ft6", name: "生成四边形网格", parentId: "nmwiyhi0un6d9", done: false, completedAt: "" }
++      { id: "dflt-health", name: "健康作息", parentId: null, done: false, completedAt: "",
++        note: "示例模板：把每天的身体状态拆成几件可勾选的小事" },
++      { id: "dflt-health-sleep", name: "规律睡眠", parentId: "dflt-health", done: false, completedAt: "",
++        note: "固定入睡与起床时间，帮助身体形成节律" },
++      { id: "dflt-health-sleep-1", name: "23:00 前放下手机", parentId: "dflt-health-sleep", done: false, completedAt: "",
++        note: "睡前半小时远离屏幕，更容易入睡" },
++      { id: "dflt-health-sleep-2", name: "保持 7–8 小时睡眠", parentId: "dflt-health-sleep", done: false, completedAt: "",
++        note: "醒来精神饱满即为合适的时长" },
++      { id: "dflt-health-move", name: "适量运动", parentId: "dflt-health", done: false, completedAt: "",
++        note: "低强度活动积累起来同样有效" },
++      { id: "dflt-health-move-1", name: "快走或慢跑 30 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
++        note: "通勤步行也可以折算进来" },
++      { id: "dflt-health-move-2", name: "睡前拉伸 10 分钟", parentId: "dflt-health-move", done: false, completedAt: "",
++        note: "重点放松肩颈与腰背" },
++      { id: "dflt-health-eat", name: "均衡饮食", parentId: "dflt-health", done: false, completedAt: "",
++        note: "规律三餐，少油少糖" },
++      { id: "dflt-health-eat-1", name: "按时吃早餐", parentId: "dflt-health-eat", done: false, completedAt: "",
++        note: "为上午提供稳定精力" },
++      { id: "dflt-health-eat-2", name: "足量饮水", parentId: "dflt-health-eat", done: false, completedAt: "",
++        note: "少量多次，不必一次喝完" },
++      { id: "dflt-learn", name: "学习提升", parentId: null, done: false, completedAt: "",
++        note: "示例模板：输入与练习搭配，记录每天的学习节奏" },
++      { id: "dflt-learn-read", name: "阅读输入", parentId: "dflt-learn", done: false, completedAt: "",
++        note: "把阅读拆到页数或章节，更容易坚持" },
++      { id: "dflt-learn-read-1", name: "阅读 20 页", parentId: "dflt-learn-read", done: false, completedAt: "",
++        note: "纸质书或电子书都可以" },
++      { id: "dflt-learn-read-2", name: "摘抄 3 句笔记", parentId: "dflt-learn-read", done: false, completedAt: "",
++        note: "再写一句自己的理解更好" },
++      { id: "dflt-learn-skill", name: "技能练习", parentId: "dflt-learn", done: false, completedAt: "",
++        note: "固定时段专注练习一项技能" },
++      { id: "dflt-learn-skill-1", name: "专注练习 25 分钟", parentId: "dflt-learn-skill", done: false, completedAt: "",
++        note: "大约一个番茄钟的时长" },
++      { id: "dflt-learn-skill-2", name: "整理练习记录", parentId: "dflt-learn-skill", done: false, completedAt: "",
++        note: "每周复盘一次进度" },
++      { id: "dflt-work", name: "工作效率", parentId: null, done: false, completedAt: "",
++        note: "示例模板：先计划后执行，减少切换成本" },
++      { id: "dflt-work-plan", name: "计划先行", parentId: "dflt-work", done: false, completedAt: "",
++        note: "每天列出少量要事，优先完成" },
++      { id: "dflt-work-plan-1", name: "早晨列出 3 件要事", parentId: "dflt-work-plan", done: false, completedAt: "",
++        note: "完成后逐项打勾" },
++      { id: "dflt-work-plan-2", name: "睡前核对清单", parentId: "dflt-work-plan", done: false, completedAt: "",
++        note: "未完成项顺延到明天" },
++      { id: "dflt-work-focus", name: "减少干扰", parentId: "dflt-work", done: false, completedAt: "",
++        note: "保护整块的注意力时间" },
++      { id: "dflt-work-focus-1", name: "专注时段静音通知", parentId: "dflt-work-focus", done: false, completedAt: "",
++        note: "集中时段统一回复消息更高效" },
++      { id: "dflt-work-focus-2", name: "单线程处理任务", parentId: "dflt-work-focus", done: false, completedAt: "",
++        note: "减少多任务来回切换" }
+     ];
+ 
+     const pad = n => String(n).padStart(2, "0");
+     const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+     const todayIso = () => iso(new Date());
+ 
+-    const DONE_HEX = "#1f6b4a";
+-    const TODO_HEX = "#b42318";
++    // 分支 / 连线 / 目录圈完成色：从 CSS 变量 --branch-done / --branch-todo 取
++    // （浅/深两套，见 :root 与 :root[data-theme="dark"]），取不到时回退浅色默认。
++    // 本段属纯函数区，不能依赖 DOM：getComputedStyle 用 try/catch 兜底（Node 自检环境
++    // 没有该全局也不抛错）。切主题时由 refreshBranchHexes() 刷新后重画。
++    const DONE_HEX_LIGHT = "#1f6b4a", TODO_HEX_LIGHT = "#b42318";
++    let DONE_HEX = DONE_HEX_LIGHT, TODO_HEX = TODO_HEX_LIGHT;
++    function cssVar(name, fallback) {
++      try {
++        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
++        return v || fallback;
++      } catch (e) { return fallback; }
++    }
++    function refreshBranchHexes() {
++      DONE_HEX = cssVar("--branch-done", DONE_HEX_LIGHT);
++      TODO_HEX = cssVar("--branch-todo", TODO_HEX_LIGHT);
++    }
+ 
+-    function formatShanghai(date) {
++    // 完成时间的墙钟格式化：不再写死 Asia/Shanghai，改用浏览器本地时区
++    // （Intl.DateTimeFormat 默认时区）。显示侧另有 TZ_LABEL 标注当前时区。
++    function formatLocalWallClock(date) {
+       const parts = new Intl.DateTimeFormat("en-GB", {
+-        timeZone: "Asia/Shanghai",
+         year: "numeric", month: "2-digit", day: "2-digit",
+         hour: "2-digit", minute: "2-digit", hour12: false
+       }).formatToParts(date);
+       const get = t => (parts.find(p => p.type === t) || {}).value || "";
+       return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+     }
+-    function nowCompletedAt() { return formatShanghai(new Date()); }
++    function nowCompletedAt() { return formatLocalWallClock(new Date()); }
+     function normalizeAt(at, dateFallback) {
+       if (at) {
+         const raw = String(at).trim();
+-        // 本应用写入的完成时间一律是上海墙上时间（formatShanghai），且不带时区后缀。
+-        // 这类串若再按浏览器本地时区解析一次，非 +08:00 环境每次加载都会漂移。
++        // 无时区后缀的墙钟串（本应用写入的格式）：按「本地时区墙钟」解释。
++        // 旧版本按上海墙钟写入的存量串在这里原样返回、原样显示，不做换算——
++        // 取舍说明见 REPORT.md（新数据本地时区，旧数据保持不变）。
+         if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(?:\.\d+)?)?$/.test(raw)) {
+-          // 只校验形状不够：2026-99-99 99:99 也会命中。用 +08:00 解析确认是真实时间，
++          // 只校验形状不够：2026-99-99 99:99 也会命中。按本地时区解析确认是真实时间
++          // （ES 规范：无偏移的日期时间串按本地时间解析，超界字段返回 NaN），
+           // 非法值继续往下走 Date.parse/dateFallback，不再原样返回脏数据。
+-          const wall = new Date(raw.replace(" ", "T") + "+08:00");
++          const wall = new Date(raw.replace(" ", "T"));
+           if (!Number.isNaN(wall.getTime())) return raw.slice(0, 16).replace("T", " ");
+         }
+-        // 带时区/ISO 的时间（Z、+08:00 等）：解析后统一换算成上海时间
++        // 带时区/ISO 的时间（Z、+08:00 等）：解析后统一换算成本地时区墙钟
+         if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) {
+           const d = new Date(raw.replace(" ", "T"));
+-          if (!Number.isNaN(d.getTime())) return formatShanghai(d);
++          if (!Number.isNaN(d.getTime())) return formatLocalWallClock(d);
+         }
+         if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw + " 00:00";
+         const parsed = Date.parse(raw);
+-        if (!Number.isNaN(parsed)) return formatShanghai(new Date(parsed));
++        if (!Number.isNaN(parsed)) return formatLocalWallClock(new Date(parsed));
+       }
+       if (dateFallback && /^\d{4}-\d{2}-\d{2}$/.test(dateFallback)) return dateFallback + " 00:00";
+       return "";
+@@ -716,7 +839,8 @@
+     // ---------- 本地数据迁移 ----------
+     // 用户树数据版本：已带此版本的本地数据不再迁移。
+     const TREE_VERSION = 2;
+-    // 用户树根节点 id（存在即说明本地已是用户树或包含用户后来添加的记录）
++    // 用户树根节点 id（旧版默认树「昆仑数模」的根；存在即说明本地已是用户树或
++    // 包含用户后来添加的记录，合规换新默认树时不覆盖这类数据）
+     const USER_ROOT_ID = "nmwiyegtzm0v4";
+     // 旧示例树的默认节点 id 集合（短视频 / 红包活动等）
+     const LEGACY_SAMPLE_IDS = new Set([
+@@ -1569,6 +1693,16 @@
+       return latest;
+     }
+ 
++    // 完成时间的时区标注：显示浏览器本地时区的短偏移（如 GMT+8），会话内不变；
++    // 读不出时留空，不影响原时间串显示。墙钟串本身不存时区（见 normalizeAt 注释）。
++    const TZ_LABEL = (function () {
++      try {
++        const parts = new Intl.DateTimeFormat("en-GB", { timeZoneName: "shortOffset" })
++          .formatToParts(new Date());
++        return (parts.find(p => p.type === "timeZoneName") || {}).value || "";
++      } catch (e) { return ""; }
++    })();
++
+     function nodeBtnHtml(opts) {
+       const toggleAttr = opts.toggle ? ` data-toggle="${escapeHtml(opts.id)}"` : "";
+       const cls = [
+@@ -1577,7 +1711,7 @@
+         opts.done ? "done" : ""
+       ].filter(Boolean).join(" ");
+       const time = opts.done && opts.completedAt
+-        ? `<span class="node-time">${escapeHtml(opts.completedAt)}</span>`
++        ? `<span class="node-time">${escapeHtml(opts.completedAt)}${TZ_LABEL ? " " + escapeHtml(TZ_LABEL) : ""}</span>`
+         : "";
+       const note = opts.note
+         ? `<span class="node-note">${escapeHtml(opts.note)}</span>`
+@@ -3268,6 +3402,32 @@
+       clearCatDropMarks();
+     });
+ 
++    // ---------- 主题切换（浅色 / 暗色） ----------
++    // 偏好存独立 key signin-tracker-theme（"light" | "dark"），不动签到数据；
++    // 未存过时由 <head> 引导脚本按 prefers-color-scheme 决定默认主题。
++    const THEME_KEY = "signin-tracker-theme";
++    const themeToggleBtn = document.getElementById("themeToggleBtn");
++    function currentTheme() {
++      return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
++    }
++    function applyThemeBadge() {
++      const dark = currentTheme() === "dark";
++      themeToggleBtn.textContent = dark ? "☀️" : "🌙";
++      themeToggleBtn.title = dark ? "切换到浅色主题" : "切换到暗色主题";
++    }
++    function setTheme(theme) {
++      document.documentElement.setAttribute("data-theme", theme);
++      try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
++      refreshBranchHexes(); // 分支/连线/目录圈颜色按主题重取 CSS 变量
++      applyThemeBadge();
++      render(); // 重画分支与目录圈颜色
++    }
++    themeToggleBtn.addEventListener("click", () => {
++      setTheme(currentTheme() === "dark" ? "light" : "dark");
++    });
++    refreshBranchHexes(); // 首帧分支颜色与当前主题一致
++    applyThemeBadge();
++
+     applySidebarOpen();
+     // 首次打开：若当前目录是大树（例如上次停在 NeurCross），自动缩放到整棵树可见，
+     // 不再从顶端 1:1 绘制导致长时间无响应

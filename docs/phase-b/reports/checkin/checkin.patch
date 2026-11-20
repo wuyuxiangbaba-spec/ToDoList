@@ -1,0 +1,727 @@
+diff --git a/base.html b/b/checkin/checkin.html
+index b5cf6a1..8308732 100644
+--- a/base.html
++++ b/b/checkin/checkin.html
+@@ -407,6 +407,116 @@
+       text-overflow: ellipsis;
+     }
+     .link-hint[hidden] { display: none !important; }
++
++    /* ===== 每日打卡日历面板（右侧，与目录侧栏各自独立收起） ===== */
++    .daily-aside {
++      width: 252px;
++      flex: 0 0 auto;
++      min-height: 0;
++      background: var(--paper);
++      border-left: 1px solid var(--line);
++      overflow: hidden;
++      transition: width 0.2s ease;
++      white-space: nowrap;
++    }
++    .daily-aside.collapsed { width: 0; border-left-color: transparent; border-left-width: 0; }
++    .daily-inner {
++      width: 252px;
++      height: 100%;
++      display: flex;
++      flex-direction: column;
++      padding: 12px 12px 14px;
++      overflow-y: auto;
++      overflow-x: hidden;
++    }
++    .daily-head {
++      display: flex; align-items: center; justify-content: space-between;
++      margin-bottom: 6px;
++    }
++    .daily-title { font-size: 15px; letter-spacing: 3px; color: var(--ink); }
++    .daily-collapse-btn { padding: 2px 9px; font-size: 14px; line-height: 1.5; }
++    .daily-nav {
++      display: flex; align-items: center; justify-content: space-between;
++      margin-bottom: 8px;
++    }
++    .daily-nav .cal-month-label { font-size: 13.5px; letter-spacing: 1px; }
++    .daily-nav button { padding: 2px 10px; }
++    .cal-week-row, .cal-grid {
++      display: grid;
++      grid-template-columns: repeat(7, 1fr);
++      gap: 3px;
++    }
++    .cal-week-row span {
++      text-align: center; font-size: 11px; color: var(--muted); padding: 2px 0;
++    }
++    .cal-grid { margin-bottom: 10px; }
++    /* 日期格：背景色由 JS 按当日完成率写入（--accent 色系 rgba 热力） */
++    .cal-cell {
++      position: relative;
++      min-height: 44px;
++      border: 1px solid var(--line);
++      border-radius: 8px;
++      background: #fff;
++      padding: 3px 2px;
++      display: flex; flex-direction: column; align-items: center; justify-content: center;
++      font-size: 12.5px;
++      line-height: 1.2;
++      color: var(--ink);
++    }
++    .cal-cell.blank { border-color: transparent; background: transparent; min-height: 0; }
++    .cal-cell:not(.blank):not(.full):hover { background: #f7f3eb; }
++    .cal-cell.future { color: var(--muted); }
++    /* 今天：保留内描边高亮（全完为深底时换成纸色描边保证可见） */
++    .cal-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
++    .cal-cell.today.full { box-shadow: inset 0 0 0 2px #fffdf8; }
++    .cal-cell.selected { border-color: var(--ink); border-width: 1.5px; }
++    /* 当日 daily 任务全部完成：实心强调色 + 纸色文字（热力最深档，压过行内热力底色） */
++    .cal-cell.full { background: var(--accent) !important; border-color: var(--accent); color: #fffdf8; }
++    .cal-cell.full .cal-frac { color: #fffdf8; }
++    .cal-frac { font-size: 10px; color: var(--muted); margin-top: 1px; }
++    .daily-stats {
++      border-top: 1px solid var(--line);
++      padding-top: 8px;
++      display: flex; flex-direction: column; gap: 6px;
++      margin-top: auto;
++    }
++    .daily-stat { display: flex; align-items: baseline; justify-content: space-between; }
++    .daily-stat-label { font-size: 12px; color: var(--muted); }
++    .daily-stat-val { font-size: 13.5px; color: var(--accent); }
++    .daily-rail {
++      position: fixed; right: 10px; top: 10px; z-index: 900;
++      padding: 6px 12px; background: var(--paper); box-shadow: var(--shadow);
++    }
++    /* 每日打卡节点的迷你徽标 */
++    .node-btn .daily-badge {
++      font-size: 9.5px; line-height: 1;
++      padding: 2px 5px;
++      border-radius: 999px;
++      border: 1px solid #bfe0cf;
++      background: var(--accent-soft);
++      color: var(--accent);
++      flex-shrink: 0;
++    }
++    .node-btn:not(.done) .daily-badge {
++      border-color: #f0c9c6; background: var(--danger-soft); color: var(--danger);
++    }
++    /* 右键菜单禁用态（分支/根节点不可设为每日打卡） */
++    .ctx-menu button:disabled { color: var(--muted); opacity: 0.45; cursor: not-allowed; }
++    .ctx-menu button:disabled:hover { background: transparent; }
++    /* 侧栏底部迷你统计：仅当前目录存在 daily 任务时渲染内容（存量数据下保持原样） */
++    .daily-mini-stats {
++      margin: 0 0 8px;
++      padding: 6px 8px;
++      border: 1px dashed #bfe0cf;
++      border-radius: 10px;
++      background: var(--accent-soft);
++      color: var(--accent);
++      font-size: 12px;
++      text-align: center;
++      white-space: nowrap;
++      overflow: hidden;
++      text-overflow: ellipsis;
++    }
+   </style>
+ </head>
+ <body>
+@@ -426,14 +536,35 @@
+         <div class="mindmap-canvas" id="catTree"></div>
+       </div>
+     </section>
++
++    <!-- 每日打卡日历：选日期 → daily 任务按当日记录打卡/补签；格内 n/m 与热力背景 -->
++    <aside class="daily-aside collapsed" id="dailyAside" aria-label="打卡日历">
++      <div class="daily-inner">
++        <div class="daily-head">
++          <span class="daily-title">打卡日历</span>
++          <button type="button" class="ghost daily-collapse-btn" id="dailyCollapseBtn" title="收起日历面板">»</button>
++        </div>
++        <div class="daily-nav">
++          <button type="button" id="calPrevBtn" title="上个月">‹</button>
++          <span class="cal-month-label" id="calMonthLabel"></span>
++          <button type="button" id="calNextBtn" title="下个月">›</button>
++        </div>
++        <div class="cal-week-row" id="calWeekRow"></div>
++        <div class="cal-grid" id="calGrid"></div>
++        <div class="daily-stats" id="dailyStats"></div>
++      </div>
++    </aside>
+   </div>
+ 
+   <button type="button" id="catalogRail" class="catalog-rail ghost" title="展开目录侧栏" hidden>» 目录</button>
+ 
++  <button type="button" id="dailyRail" class="daily-rail ghost" title="展开打卡日历" hidden>日历</button>
++
+   <div id="ctxMenu" class="ctx-menu" hidden>
+     <button type="button" data-act="add">+ 分支</button>
+     <button type="button" data-act="rename">改名</button>
+     <button type="button" data-act="note">插入说明</button>
++    <button type="button" data-act="kind">设为每日打卡</button>
+     <button type="button" data-act="link">连线</button>
+     <button type="button" data-act="unlink">取消连线</button>
+     <button type="button" data-act="unpin">移除目录标识</button>
+@@ -632,6 +763,44 @@
+       return linkDone;
+     }
+ 
++    // 日期串校验：YYYY-MM-DD 且为真实存在的日历日（2026-02-30 / 2026-13-01 均非法）。
++    // 纯字符串 + Date.UTC 回读校验，不依赖任何时区。
++    function isValidDateStr(s) {
++      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
++      const y = +s.slice(0, 4), m = +s.slice(5, 7), d = +s.slice(8, 10);
++      const dt = new Date(Date.UTC(y, m - 1, d));
++      return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
++    }
++
++    // 每日打卡记录规范化：{ "YYYY-MM-DD": { [nodeId]: { done: true, at } } }
++    // - 非法日期键 / 非对象记录整体丢弃（脏数据不崩，也不原样写回）；
++    // - 只保留「当前仍是 daily 叶子」的节点：节点已删除或改回长期任务的记录一并失效；
++    // - 记录体统一收敛为 { done: true, at: 字符串 }，其余形状丢弃；
++    // - 清空后的空日期键不保留，避免存储里堆积 {}。
++    function normalizeDailyChecks(rawChecks, nodes) {
++      const out = {};
++      if (!rawChecks || typeof rawChecks !== "object") return out;
++      const parentIds = new Set(nodes.filter(n => n.parentId).map(n => n.parentId));
++      const dailyLeafIds = new Set(
++        nodes.filter(n => n.kind === "daily" && !parentIds.has(n.id)).map(n => n.id)
++      );
++      for (const date of Object.keys(rawChecks)) {
++        if (!isValidDateStr(date)) continue;
++        const rec = rawChecks[date];
++        if (!rec || typeof rec !== "object") continue;
++        const day = {};
++        for (const id of Object.keys(rec)) {
++          if (!dailyLeafIds.has(id)) continue;
++          const val = rec[id];
++          if (val && typeof val === "object" && val.done === true) {
++            day[id] = { done: true, at: val.at != null ? String(val.at) : "" };
++          }
++        }
++        if (Object.keys(day).length) out[date] = day;
++      }
++      return out;
++    }
++
+     // 统一节点模型：完成状态挂在节点上（done + completedAt），不随日期切换。
+     // 兼容旧版 nodeChecks[date][id] 以及更早的 items/categories/checks。
+     function normalizeState(data) {
+@@ -642,7 +811,9 @@
+           parentId: n.parentId ? String(n.parentId) : null,
+           done: !!n.done,
+           completedAt: n.completedAt || "",
+-          note: n.note ? String(n.note).slice(0, 160) : ""
++          note: n.note ? String(n.note).slice(0, 160) : "",
++          // 任务类型：once=一次性（默认，存量数据无此字段一律按 once），daily=每日打卡
++          kind: n.kind === "daily" ? "daily" : "once"
+         }));
+         const finalNodes = finalizeNodes(nodes, data.nodeChecks);
+         return {
+@@ -662,7 +833,7 @@
+           seen.add(id);
+           nodes.push({
+             id, name: String(c.name || ""), parentId: c.parentId ? String(c.parentId) : null,
+-            done: false, completedAt: ""
++            done: false, completedAt: "", kind: "once"
+           });
+         }
+       }
+@@ -676,7 +847,8 @@
+           parentId: it.categoryId ? String(it.categoryId) : null,
+           done: false,
+           completedAt: "",
+-          note: it.note ? String(it.note).slice(0, 160) : ""
++          note: it.note ? String(it.note).slice(0, 160) : "",
++          kind: "once"
+         });
+       }
+ 
+@@ -879,13 +1051,20 @@
+         linkDone: src.linkDone,
+         nodeChecks: src.nodeChecks
+       });
++      // 防御：daily 只允许叶子。树上后来长出子节点的 daily 节点在此降回 once，
++      // 其残留的按日记录会随 normalizeDailyChecks 的叶子过滤一并清掉。
++      const parentIds = new Set(tree.nodes.filter(n => n.parentId).map(n => n.parentId));
++      for (const n of tree.nodes) {
++        if (n.kind === "daily" && parentIds.has(n.id)) n.kind = "once";
++      }
+       return {
+         id: String(src.id || genCatalogId()),
+         name: String(src.name || "未命名目录").slice(0, 40),
+         archVersion: Number(src.archVersion) || 0,
+         nodes: tree.nodes,
+         links: tree.links,
+-        linkDone: tree.linkDone
++        linkDone: tree.linkDone,
++        dailyChecks: normalizeDailyChecks(src.dailyChecks, tree.nodes)
+       };
+     }
+ 
+@@ -1340,7 +1519,8 @@
+           archVersion: NEURCROSS_ARCH_VERSION,
+           nodes: cloneNeurCrossNodes(),
+           links: NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b })),
+-          linkDone: {}
++          linkDone: {},
++          dailyChecks: {}
+         });
+         return catalogs;
+       }
+@@ -1368,7 +1548,7 @@
+     //   （含旧示例树丢弃逻辑），整包迁入第一个目录「默认目录」，并成为当前目录；
+     // - 无数据：用户默认树包成第一个目录。
+     function resolveCatalogState(raw) {
+-      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [], neurCrossHidden: false };
++      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [], neurCrossHidden: false, calendarOpen: false };
+       if (raw) {
+         try {
+           const data = JSON.parse(raw);
+@@ -1392,7 +1572,9 @@
+                 currentCatalogId: currentCatalogId,
+                 sidebarOpen: data.sidebarOpen !== false,
+                 catalogInserts: normalizeCatalogInserts(data.catalogInserts, catalogs),
+-                neurCrossHidden: hidden
++                neurCrossHidden: hidden,
++                // 打卡日历面板开合持久化；默认收起，保证存量用户首屏与旧版一致
++                calendarOpen: data.calendarOpen === true
+               });
+             }
+           }
+@@ -1404,7 +1586,8 @@
+         name: "默认目录",
+         nodes: first.nodes,
+         links: first.links,
+-        linkDone: first.linkDone
++        linkDone: first.linkDone,
++        dailyChecks: {}
+       };
+       const catalogs = [cat];
+       ensureNeurCrossCatalog(catalogs, false);
+@@ -1437,7 +1620,8 @@
+     Object.defineProperties(state, {
+       nodes: { configurable: true, get: () => currentCatalog().nodes, set: v => { currentCatalog().nodes = v; } },
+       links: { configurable: true, get: () => currentCatalog().links, set: v => { currentCatalog().links = v; } },
+-      linkDone: { configurable: true, get: () => currentCatalog().linkDone, set: v => { currentCatalog().linkDone = v; } }
++      linkDone: { configurable: true, get: () => currentCatalog().linkDone, set: v => { currentCatalog().linkDone = v; } },
++      dailyChecks: { configurable: true, get: () => currentCatalog().dailyChecks, set: v => { currentCatalog().dailyChecks = v; } }
+     });
+     state.currentCatalogId = currentCatalog().id;
+ 
+@@ -1488,12 +1672,15 @@
+       visited.delete(startId);
+       return [...visited];
+     }
+-    // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记
++    // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记。
++    // 每日打卡（daily）叶子不参与一次性批量完成/取消：它的完成态按日期记录在
++    // dailyChecks，不由 done/completedAt 承载（存量纯 once 树行为不变）。
+     function setNodeDoneWithLeaves(nodeId, done, at, viaLink) {
+       const when = done ? (at || nowCompletedAt()) : "";
+       for (const lid of collectLeafIds(nodeId)) {
+         const leaf = nodeById(lid);
+         if (!leaf) continue;
++        if (leaf.kind === "daily") continue;
+         if (done) {
+           // 已完成的叶子保留原始完成时间：批量勾父分支不该把历史时间全部改成现在
+           if (!leaf.done || !leaf.completedAt) leaf.completedAt = when;
+@@ -1573,9 +1760,14 @@
+       const toggleAttr = opts.toggle ? ` data-toggle="${escapeHtml(opts.id)}"` : "";
+       const cls = [
+         "node-btn",
++        opts.kind === "daily" ? "daily" : "",
+         opts.toggle ? "toggle" : "",
+         opts.done ? "done" : ""
+       ].filter(Boolean).join(" ");
++      // 每日打卡节点带迷你徽标，一眼区分 once / daily
++      const badge = opts.kind === "daily"
++        ? '<span class="daily-badge" aria-hidden="true">每日</span>'
++        : "";
+       const time = opts.done && opts.completedAt
+         ? `<span class="node-time">${escapeHtml(opts.completedAt)}</span>`
+         : "";
+@@ -1584,7 +1776,7 @@
+         : "";
+       return `<button type="button" class="${cls}"${toggleAttr} title="${escapeHtml(opts.tip)}">
+         <span class="node-dot"></span>
+-        <span class="node-name">${escapeHtml(opts.name)}</span>
++        <span class="node-name">${escapeHtml(opts.name)}</span>${badge}
+         <span class="state">${opts.done ? "✓" : ""}</span>
+         ${time}
+         ${note}
+@@ -1596,9 +1788,13 @@
+       const buildNode = (n, depth) => {
+         const kids = childNodes(n.id);
+         const leaf = kids.length === 0;
+-        const done = nodeDone(n);
+-        const completedAt = nodeCompletedAt(n);
+-        const tip = leaf ? "末梢节点：点击切换完成，拖拽可调整层级，右键可增删改" : "分支节点：点击可批量切换下级，拖拽可调整层级，右键可增删改";
++        // 显示口径：daily 叶子按「当前选中日期」取打卡记录（切日期只影响 daily），
++        // once 叶子/分支沿用原有 done 聚合，行为与基线完全一致
++        const done = displayDone(n);
++        const completedAt = displayCompletedAt(n);
++        const tip = leaf && n.kind === "daily"
++          ? "每日打卡节点：点击在日历选中的日期打卡/取消（过去可补签，未来不可打卡）"
++          : (leaf ? "末梢节点：点击切换完成，拖拽可调整层级，右键可增删改" : "分支节点：点击可批量切换下级，拖拽可调整层级，右键可增删改");
+         return {
+           nid: "n" + (++uid),
+           depth,
+@@ -1608,7 +1804,7 @@
+           leafKind: leaf ? (depth >= 3 ? "param" : "std") : "",
+           refId: n.id,
+           draggable: true,
+-          html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, note: n.note || "", toggle: true, tip }),
++          html: nodeBtnHtml({ id: n.id, name: n.name, kind: n.kind || "once", done, completedAt, note: n.note || "", toggle: true, tip }),
+           children: kids.map(k => buildNode(k, depth + 1))
+         };
+       };
+@@ -2325,9 +2521,236 @@
+       });
+     }
+ 
++    /* ==== DAILY-CHECKIN-START ====（日历 ↔ 任务打卡 双模式） ==== */
++    // 当前查看的日期：浏览器本地时区 YYYY-MM-DD（todayIso 用本地 getFullYear/getMonth/getDate，
++    // 不写死任何时区）。daily 节点的显示/打卡都以它为准；once 节点完全不受它影响。
++    let selectedDate = todayIso();
++    // 日历面板当前显示的年月 { y, m }（m 为 0 基），独立于 selectedDate 可前后翻月
++    let calView = null;
++
++    function calEnsureView() {
++      if (calView) return;
++      const parts = selectedDate.split("-");
++      calView = { y: +parts[0], m: +parts[1] - 1 };
++    }
++
++    // 当前目录里的 daily 叶子节点（daily 只允许叶子；分支已在 normalize 降回 once）
++    function dailyLeafNodes() {
++      return state.nodes.filter(n => n.kind === "daily" && !childNodes(n.id).length);
++    }
++    function dailyChecksOf() {
++      const cat = currentCatalog();
++      return (cat && cat.dailyChecks) || {};
++    }
++    function dailyCheckedOn(dateStr, id) {
++      const rec = dailyChecksOf()[dateStr];
++      return !!(rec && rec[id] && rec[id].done);
++    }
++    // 某日期的 daily 完成度 { done, total }：total = 当前 daily 叶子总数（当前任务集口径）
++    function dailyStatsFor(dateStr) {
++      const leaves = dailyLeafNodes();
++      const rec = dailyChecksOf()[dateStr] || {};
++      let done = 0;
++      for (const n of leaves) if (rec[n.id] && rec[n.id].done) done++;
++      return { done: done, total: leaves.length };
++    }
++    // 连续打卡 Streak：以「当前目录 daily 任务全部完成」为口径，从今天往回连续计数；
++    // 今天尚未全完时不打断链（从昨天起算），昨天往前断了即停。
++    // 目录里没有 daily 任务时恒为 0；上限两年，防脏数据长循环。
++    function dailyStreak() {
++      const t = dailyStatsFor(todayIso());
++      if (!t.total) return 0;
++      let streak = 0;
++      const cur = new Date();
++      if (t.done < t.total) cur.setDate(cur.getDate() - 1);
++      for (let i = 0; i < 730; i++) {
++        const s = dailyStatsFor(iso(cur));
++        if (s.total && s.done >= s.total) streak++;
++        else break;
++        cur.setDate(cur.getDate() - 1);
++      }
++      return streak;
++    }
++    // 打卡时刻显示：记录里存 ISO 串，展示时转浏览器本地墙上时间
++    function fmtDailyAt(at) {
++      const d = new Date(at);
++      if (!at || isNaN(d.getTime())) return "";
++      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
++        " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
++    }
++    // 显示口径的完成态：daily 叶子看选中日期的打卡记录；once 叶子/分支沿用原聚合
++    function displayDone(node) {
++      if (!node) return false;
++      const kids = childNodes(node.id);
++      if (kids.length) return kids.every(displayDone);
++      if (node.kind === "daily") return dailyCheckedOn(selectedDate, node.id);
++      return !!node.done;
++    }
++    function displayCompletedAt(node) {
++      if (!node || !displayDone(node)) return "";
++      const kids = childNodes(node.id);
++      if (kids.length) {
++        let latest = "";
++        for (const k of kids) {
++          const t = displayCompletedAt(k);
++          if (t > latest) latest = t;
++        }
++        return latest;
++      }
++      if (node.kind === "daily") {
++        const rec = (dailyChecksOf()[selectedDate] || {})[node.id];
++        return rec && rec.at ? fmtDailyAt(rec.at) : selectedDate;
++      }
++      return node.completedAt || "";
++    }
++    // 批量完成/取消只看 once 叶子（daily 叶子按日期走，不随分支批量切换）。
++    // 纯 once 树上与原 nodeDone 判定等价。
++    function onceLeavesAllDone(nodeId) {
++      return collectLeafIds(nodeId).every(lid => {
++        const leaf = nodeById(lid);
++        return (!leaf || leaf.kind === "daily") ? true : !!leaf.done;
++      });
++    }
++    // 清掉空日期键，保持 localStorage 里不堆积 {}
++    function cleanEmptyDailyDates(dc) {
++      const out = {};
++      for (const d of Object.keys(dc || {})) {
++        const rec = dc[d];
++        if (rec && Object.keys(rec).length) out[d] = rec;
++      }
++      return out;
++    }
++
++    // 每日打卡节点的点击：在选中日期上打卡/取消。过去日期 = 补签，未来日期禁止。
++    function handleDailyToggle(nodeId) {
++      const today = todayIso();
++      if (selectedDate > today) {
++        showLinkHint("未来日期不能提前打卡，请选择今天或更早的日期", false);
++        return;
++      }
++      const cat = currentCatalog();
++      const rec = cat.dailyChecks[selectedDate] || {};
++      if (rec[nodeId] && rec[nodeId].done) {
++        delete rec[nodeId];
++        if (!Object.keys(rec).length) delete cat.dailyChecks[selectedDate];
++        else cat.dailyChecks[selectedDate] = rec;
++        showLinkHint("已取消 " + selectedDate + " 的打卡", false);
++      } else {
++        rec[nodeId] = { done: true, at: new Date().toISOString() };
++        cat.dailyChecks[selectedDate] = rec;
++        showLinkHint("已在 " + selectedDate + " 打卡", false);
++      }
++      save();
++      render();
++    }
++
++    // 右键「设为每日打卡 / 改为长期任务」：只对叶子开放（分支/根在菜单里禁用/隐藏）
++    function toggleNodeKind(nodeId) {
++      const node = nodeById(nodeId);
++      if (!node) return;
++      if (childNodes(node.id).length) {
++        showLinkHint("分支节点不能设为每日打卡", false);
++        return;
++      }
++      const cat = currentCatalog();
++      if (node.kind === "daily") {
++        node.kind = "once";
++        // 改回长期任务：按日记录随之失效，立即清掉（normalize 也会兜底）
++        for (const rec of Object.values(cat.dailyChecks || {})) delete rec[nodeId];
++        cat.dailyChecks = cleanEmptyDailyDates(cat.dailyChecks);
++      } else {
++        node.kind = "daily";
++        // 设为每日打卡：一次性完成态让位给按日记录，从选中日期开始重新计数
++        node.done = false;
++        node.completedAt = "";
++      }
++      delete state.linkDone[nodeId]; // 联动完成标记对 daily 无意义，切类时清掉
++      save();
++      render();
++    }
++
++    // ---------- 日历面板渲染 ----------
++    const CAL_WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
++    // 完成率热力：0% → 近乎透明的浅绿，100% → 深强调色（.full 再叠实心底色），
++    // 色相取自 --accent (#1f6b4a)
++    function calHeatBg(rate) {
++      return "rgba(31, 107, 74, " + (0.05 + 0.32 * rate).toFixed(3) + ")";
++    }
++
++    function renderCalendarPanel() {
++      const aside = document.getElementById("dailyAside");
++      const rail = document.getElementById("dailyRail");
++      if (!aside || !rail) return;
++      const open = state.calendarOpen === true;
++      aside.classList.toggle("collapsed", !open);
++      rail.hidden = open;
++      if (!open) return;
++      calEnsureView();
++      document.getElementById("calMonthLabel").textContent =
++        calView.y + "年" + (calView.m + 1) + "月";
++      const week = document.getElementById("calWeekRow");
++      if (!week.childElementCount) {
++        week.innerHTML = CAL_WEEKDAYS.map(w => "<span>" + w + "</span>").join("");
++      }
++      const today = todayIso();
++      const lead = new Date(calView.y, calView.m, 1).getDay();
++      const days = new Date(calView.y, calView.m + 1, 0).getDate();
++      const parts = [];
++      for (let i = 0; i < lead; i++) parts.push('<span class="cal-cell blank"></span>');
++      for (let d = 1; d <= days; d++) {
++        const ds = calView.y + "-" + pad(calView.m + 1) + "-" + pad(d);
++        const st = dailyStatsFor(ds);
++        const rate = st.total ? st.done / st.total : 0;
++        const cls = ["cal-cell"];
++        if (ds === today) cls.push("today");
++        if (ds === selectedDate) cls.push("selected");
++        if (ds > today) cls.push("future");
++        if (st.total && st.done >= st.total) cls.push("full");
++        const style = st.total ? ' style="background:' + calHeatBg(rate) + '"' : "";
++        parts.push(
++          '<button type="button" class="' + cls.join(" ") + '" data-date="' + ds + '"' + style +
++          ' title="' + ds + ' 完成 ' + st.done + '/' + st.total + '">' +
++          '<span class="cal-day">' + d + '</span>' +
++          (st.total ? '<span class="cal-frac">' + st.done + '/' + st.total + '</span>' : '') +
++          '</button>'
++        );
++      }
++      document.getElementById("calGrid").innerHTML = parts.join("");
++      const streak = dailyStreak();
++      const t = dailyStatsFor(today);
++      const sel = dailyStatsFor(selectedDate);
++      document.getElementById("dailyStats").innerHTML =
++        '<div class="daily-stat"><span class="daily-stat-label">连续打卡 Streak</span>' +
++        '<span class="daily-stat-val">' + streak + ' 天</span></div>' +
++        '<div class="daily-stat"><span class="daily-stat-label">今日完成率</span>' +
++        '<span class="daily-stat-val">' + (t.total ? Math.round(t.done / t.total * 100) + "%" : "—") + '</span></div>' +
++        '<div class="daily-stat"><span class="daily-stat-label">选中 ' + selectedDate + '</span>' +
++        '<span class="daily-stat-val">' + (sel.total ? sel.done + "/" + sel.total : "—") + '</span></div>';
++    }
++
++    // 侧栏底部迷你统计：仅当前目录存在 daily 任务时才挂载节点，
++    // 存量（无 daily）数据下侧栏 DOM 与旧版逐字节一致
++    function updateDailyMiniStats() {
++      const foot = document.querySelector(".catalog-side-foot");
++      if (!foot) return;
++      const host = document.getElementById("dailyMiniStats");
++      if (!dailyLeafNodes().length) {
++        if (host) host.remove();
++        return;
++      }
++      const el = host || foot.insertBefore(Object.assign(document.createElement("div"), {
++        id: "dailyMiniStats", className: "daily-mini-stats"
++      }), foot.firstChild);
++      const t = dailyStatsFor(todayIso());
++      el.textContent = "连续打卡 " + dailyStreak() + " 天 · 今日 " + t.done + "/" + t.total;
++    }
++    /* ==== DAILY-CHECKIN-END ==== */
++
+     function render() {
+       renderCatalogList();
+       renderTree();
++      renderCalendarPanel();
++      updateDailyMiniStats();
+     }
+ 
+     // ---------- 树点击交互 ----------
+@@ -2544,6 +2967,20 @@
+           ? "移除目录标识（" + inserts.length + "）"
+           : "移除目录标识" + (targetCat ? "「" + targetCat.name + "」" : "");
+       }
++      // 设为每日打卡 / 改为长期任务：根（虚拟节点）隐藏；分支禁用（完成态由子节点派生）
++      const kindBtn = ctxMenu.querySelector('[data-act="kind"]');
++      kindBtn.hidden = isRoot || !ctxTarget.refId;
++      if (!kindBtn.hidden) {
++        const kn = ctxTarget.refId ? nodeById(ctxTarget.refId) : null;
++        const isBranch = kn ? childNodes(kn.id).length > 0 : false;
++        kindBtn.disabled = isBranch;
++        kindBtn.textContent = kn && kn.kind === "daily" ? "改为长期任务" : "设为每日打卡";
++        kindBtn.title = isBranch
++          ? "分支节点不能设为每日打卡"
++          : (kn && kn.kind === "daily"
++              ? "恢复为一次性任务，并清空其按日打卡记录"
++              : "按本地日历逐日打卡，可在日历面板给过去日期补签");
++      }
+       ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
+       ctxMenu.hidden = false;
+       ctxMenu.style.left = e.clientX + "px";
+@@ -2591,9 +3028,18 @@
+             done: false,
+             completedAt: ""
+           });
+-          // 父节点从叶子变成分支：清掉它作为叶子时的 done，否则下次加载会把它下推给新子节点
++          // 父节点从叶子变成分支：清掉它作为叶子时的 done，否则下次加载会把它下推给新子节点；
++          // daily 只允许叶子，长出子节点的同时降回 once（其按日记录按失效处理）
+           const parent = ed.parentId ? nodeById(ed.parentId) : null;
+-          if (parent) { parent.done = false; parent.completedAt = ""; }
++          if (parent) {
++            parent.done = false;
++            parent.completedAt = "";
++            if (parent.kind === "daily") {
++              parent.kind = "once";
++              for (const rec of Object.values(currentCatalog().dailyChecks || {})) delete rec[parent.id];
++              currentCatalog().dailyChecks = cleanEmptyDailyDates(currentCatalog().dailyChecks);
++            }
++          }
+           save();
+         }
+         render();
+@@ -2721,6 +3167,12 @@
+       state.catalogInserts = state.catalogInserts.filter(
+         ins => !(ins.catalog === state.currentCatalogId && ins.node === node.id)
+       );
++      // 删除的是每日打卡节点时，顺手清掉它在 dailyChecks 里的按日记录（normalize 也会兜底）
++      const dc = currentCatalog().dailyChecks;
++      if (dc) {
++        for (const rec of Object.values(dc)) delete rec[node.id];
++        currentCatalog().dailyChecks = cleanEmptyDailyDates(dc);
++      }
+       save(); render();
+     }
+ 
+@@ -2748,7 +3200,14 @@
+         const id = toggleBtn.dataset.toggle;
+         const node = nodeById(id);
+         if (!node) return;
+-        const nextDone = !nodeDone(node);
++        // 每日打卡节点：点击 = 在日历选中日期上打卡/取消（过去补签、未来禁止），
++        // 不走 done/completedAt，也不触发连线联动
++        if (node.kind === "daily") {
++          handleDailyToggle(id);
++          return;
++        }
++        // 批量完成/取消的「下一态」只看 once 叶子；纯 once 树与原 nodeDone 判定等价
++        const nextDone = !onceLeavesAllDone(id);
+         const now = nowCompletedAt();
+         // 用户的主动打卡：亲自点击的节点不打联动标记（若原来是联动完成，此时改为用户自己的记录/取消）
+         setNodeDoneWithLeaves(id, nextDone, nextDone ? now : "", false);
+@@ -2780,6 +3239,7 @@
+       if (act === "add") startAddEditor(refId || null);
+       else if (act === "rename") startRenameEditor(refId);
+       else if (act === "note") startNoteEditor(refId);
++      else if (act === "kind") toggleNodeKind(refId);
+       else if (act === "delete") deleteNode(refId);
+       else if (act === "link") enterLinkMode(refId, "add");
+       else if (act === "unlink") {
+@@ -3268,6 +3728,39 @@
+       clearCatDropMarks();
+     });
+ 
++    // ---------- 日历面板交互 ----------
++    document.getElementById("calGrid").addEventListener("click", e => {
++      const cell = e.target.closest("button[data-date]");
++      if (!cell) return;
++      selectedDate = cell.dataset.date;
++      // 切日期只影响 daily 节点显示与统计，once 节点状态不变
++      render();
++    });
++    document.getElementById("calPrevBtn").addEventListener("click", () => {
++      calEnsureView();
++      calView = calView.m === 0 ? { y: calView.y - 1, m: 11 } : { y: calView.y, m: calView.m - 1 };
++      renderCalendarPanel();
++    });
++    document.getElementById("calNextBtn").addEventListener("click", () => {
++      calEnsureView();
++      calView = calView.m === 11 ? { y: calView.y + 1, m: 0 } : { y: calView.y, m: calView.m + 1 };
++      renderCalendarPanel();
++    });
++    document.getElementById("dailyCollapseBtn").addEventListener("click", () => {
++      state.calendarOpen = false;
++      save();
++      renderCalendarPanel();
++      scheduleViewportUpdate(); // 面板收起改变舞台宽度，刷新可见集
++    });
++    document.getElementById("dailyRail").addEventListener("click", () => {
++      state.calendarOpen = true;
++      selectedDate = todayIso(); // 展开时回到今天
++      calView = null;
++      save();
++      renderCalendarPanel();
++      scheduleViewportUpdate();
++    });
++
+     applySidebarOpen();
+     // 首次打开：若当前目录是大树（例如上次停在 NeurCross），自动缩放到整棵树可见，
+     // 不再从顶端 1:1 绘制导致长时间无响应
