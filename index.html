@@ -241,18 +241,26 @@
       letter-spacing: 0;
     }
 
+    /* 说明小字：按上方任务块（.node-btn）宽度自动换行，绝不向右溢出方框，
+       也不用单行省略号裁切；line-height 1.5 保证多行不挤在一起 */
     .node-note {
       position: absolute;
-      left: 14px;
-      top: calc(100% + 2px);
+      left: 0;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0 12px;
+      top: calc(100% + 3px);
       font-size: 10px;
-      line-height: 1;
+      line-height: 1.5;
       color: var(--muted);
       pointer-events: none;
-      white-space: nowrap;
+      white-space: normal;
+      overflow-wrap: break-word;
+      word-break: break-word;
       letter-spacing: 0;
+      text-align: left;
     }
-    .node-btn.done .node-note { top: calc(100% + 13px); }
+    .node-btn.done .node-note { top: calc(100% + 14px); }
 
     .mm-node:hover { z-index: 10; }
     .mm-node.editing { z-index: 20; }
@@ -270,6 +278,30 @@
       min-width: 108px;
       max-width: 220px;
       width: 9em;
+      box-shadow: 0 3px 10px rgba(30, 36, 48, 0.08);
+    }
+    /* 说明编辑框：与改名同风格，但可多行、允许多宽一点；Enter 保存 / Esc 取消 */
+    .node-note-edit {
+      position: absolute;
+      z-index: 30;
+    }
+    .node-note-input {
+      display: block;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 400;
+      border: 1.5px solid var(--accent);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 5px 10px;
+      outline: none;
+      width: 220px;
+      min-width: 120px;
+      max-width: 280px;
+      min-height: 2.6em;
+      resize: vertical;
+      line-height: 1.5;
       box-shadow: 0 3px 10px rgba(30, 36, 48, 0.08);
     }
     .mm-inline-add {
@@ -375,6 +407,7 @@
   <div id="ctxMenu" class="ctx-menu" hidden>
     <button type="button" data-act="add">+ 分支</button>
     <button type="button" data-act="rename">改名</button>
+    <button type="button" data-act="note">插入说明</button>
     <button type="button" data-act="link">连线</button>
     <button type="button" data-act="unlink">取消连线</button>
     <button type="button" class="danger" data-act="delete">删除</button>
@@ -770,45 +803,394 @@
       };
     }
 
-    // ---------- NeurCross 代码架构预置目录（纯函数） ----------
+    // ---------- NeurCross 代码架构预置目录（函数 / 类 / 方法 / 参数级） ----------
     // 目录名固定为「NeurCross」：打开该目录后，树状图即 NeurCross 代码架构。
     // 节点 id 统一前缀 nc_，与 DEFAULT_NODES（nmw…）不冲突。
+    // 层级规则（函数/类/方法/参数名全部来自 /workspace/neurcross/src，不在源码里的不画）：
+    //   文件 → 函数/类 → 方法 → 参数；方法里的 self 省略；
+    //   参数默认值写在该参数节点的 note（如「默认 128」），不塞进方块标题；
+    //   Decoder.forward 签名是 *args, **kwargs：不虚构参数名，note 注明即可；
+    //   train_quad_mesh.py 无 def：其下挂源码实际用到的对象 / 调用点叶子，
+    //     调用点（args/train_set/net/criterion、same_seed 等）用虚线指向定义节点
+    //     （见 NEURCROSS_DEFAULT_LINKS），不复制第二份函数定义树。
+    // 节点 id 由「文件前缀_类_方法_参数」确定性拼接（train 叶子用 nc_tr_ 前缀），
+    // 同一份代码生成，稳定唯一。
     const NEURCROSS_CATALOG_ID = "cat_neurcross_arch";
     const NEURCROSS_CATALOG_NAME = "NeurCross";
-    const NEURCROSS_DEFAULT_NODES = [
-      { id: "nc_root", name: "NeurCross", parentId: null, done: false, completedAt: "",
-        note: "代码架构总览（父子分支=调用层级）" },
-      { id: "nc_train", name: "quad_mesh/train_quad_mesh.py", parentId: "nc_root", done: false, completedAt: "",
-        note: "训练主程序（入口）：cd quad_mesh && python train_quad_mesh.py" },
-      { id: "nc_args", name: "quad_mesh/quad_mesh_args.py", parentId: "nc_train", done: false, completedAt: "",
-        note: "命令行参数" },
-      { id: "nc_dataset", name: "quad_mesh/quad_mesh_dataset.py", parentId: "nc_train", done: false, completedAt: "",
-        note: "读三角网格、取面心/法向/局部标架、采样点" },
-      { id: "nc_models_init", name: "models/__init__.py", parentId: "nc_train", done: false, completedAt: "",
-        note: "导出 Network_predict_angle 和 MorseLoss_quad_mesh" },
-      { id: "nc_digs", name: "models/DiGS.py", parentId: "nc_models_init", done: false, completedAt: "",
-        note: "Network_predict_angle：SIREN 解码器 + UNet 预测转角 theta；旧 Network 类训练未用" },
-      { id: "nc_unet", name: "models/UNet.py", parentId: "nc_digs", done: false, completedAt: "",
-        note: "UNet_predict_angle：12 维特征预测一个角" },
-      { id: "nc_loss", name: "models/loss_quad_mesh.py", parentId: "nc_models_init", done: false, completedAt: "",
-        note: "MorseLoss_quad_mesh：SDF/离面/Eikonal/Morse，theta→alpha,beta 与邻面一致性" },
-      { id: "nc_encoder", name: "models/encoder.py", parentId: "nc_models_init", done: false, completedAt: "",
-        note: "点云编码器，latent_size=0，当前训练默认不启用（虚线连 DiGS.py）" },
-      { id: "nc_utils", name: "utils/utils.py", parentId: "nc_train", done: false, completedAt: "",
-        note: "种子、日志、求导、邻面旋转、保存交叉场；loss 亦调用（虚线）" },
-      { id: "nc_ocn", name: "models/ocn", parentId: "nc_root", done: false, completedAt: "",
-        note: "遗留，当前训练不用" },
-      { id: "nc_ocn_common", name: "common.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" },
-      { id: "nc_ocn_layers", name: "layers.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" },
-      { id: "nc_ocn_unet", name: "unet.py", parentId: "nc_ocn", done: false, completedAt: "",
-        note: "遗留 UNet，与 models/UNet.py 不是同一文件" },
-      { id: "nc_ocn_unet3d", name: "unet3d.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" }
-    ];
+    const NEURCROSS_DEFAULT_NODES = (function () {
+      // 参数叶子：name=参数名，note=默认值说明
+      const P = (name, note) => ({ name, note: note || "", kids: [] });
+      // 函数 / 方法 / 类同构：name + note + 孩子列表
+      const F = (name, note, params) => ({ name, note: note || "", kids: params || [] });
+      const M = F;
+      const C = F;
+      const out = [];
+      const push = (id, name, parentId, note) => {
+        out.push({ id, name, parentId, done: false, completedAt: "", note: note || "" });
+      };
+      const walk = (kids, parentId) => {
+        for (const k of kids) {
+          const id = parentId + "_" + k.name;
+          push(id, k.name, parentId, k.note);
+          if (k.kids && k.kids.length) walk(k.kids, id);
+        }
+      };
+      const file = (id, name, parentId, note, kids) => {
+        push(id, name, parentId, note);
+        walk(kids || [], id);
+      };
+      const trLeaf = (id, name, note) => push("nc_tr_" + id, name, "nc_train", note);
+
+      push("nc_root", "NeurCross", null, "代码架构总览（父子分支=调用层级）");
+
+      // ===== quad_mesh/train_quad_mesh.py：训练脚本（无 def），下挂关键对象 / 调用点 =====
+      push("nc_train", "quad_mesh/train_quad_mesh.py", "nc_root",
+        "训练主程序（入口）：cd quad_mesh && python train_quad_mesh.py（脚本无 def，下挂实际用到的对象/调用点，虚线指向定义）");
+      trLeaf("args", "args", "命令行参数（get_args() 返回，虚线指向 get_args）");
+      trLeaf("same_seed", "same_seed", "调用点：utils.same_seed(args.seed)");
+      trLeaf("logdir", "logdir", "日志目录（os.path.join(args.logdir, file_name)）");
+      trLeaf("log_file", "log_file", "setup_logdir_only_log(logdir, args) 返回的日志文件");
+      trLeaf("setup_logdir_only_log", "setup_logdir_only_log", "调用点：建日志目录（虚线指向 utils 定义）");
+      trLeaf("device", "device", "'cpu' / 'cuda'");
+      trLeaf("train_set", "train_set", "dataset.ReconDataset(...) 实例（虚线指向 ReconDataset）");
+      trLeaf("train_dataloader", "train_dataloader", "torch.utils.data.DataLoader(train_set, ...)");
+      trLeaf("net", "net", "Network_predict_angle(...) 实例（虚线指向定义）");
+      trLeaf("n_parameters", "n_parameters", "utils.count_parameters(net)");
+      trLeaf("count_parameters", "count_parameters", "调用点：统计参数量（虚线指向 utils 定义）");
+      trLeaf("optimizer", "optimizer", "optim.Adam(net.parameters(), lr=args.lr)");
+      trLeaf("criterion", "criterion", "MorseLoss_quad_mesh 实例（from models import MorseLoss_quad_mesh as MorseLoss）");
+      trLeaf("vertex_neighbors", "vertex_neighbors", "get_sample_vers_neighbors_for_face_center_points_or_vertices(...)");
+      trLeaf("vertex_neighbors_list", "vertex_neighbors_list", "calculate_same_neighbors_verts(vertex_neighbors)");
+      trLeaf("axis_angle_R_mat_list", "axis_angle_R_mat_list", "get_rotation_matrix(...) 得到的旋转矩阵列表");
+      trLeaf("get_sample_vers_neighbors_for_face_center_points_or_vertices",
+        "get_sample_vers_neighbors_for_face_center_points_or_vertices", "调用点（虚线指向 utils 定义）");
+      trLeaf("calculate_same_neighbors_verts", "calculate_same_neighbors_verts", "调用点（虚线指向 utils 定义）");
+      trLeaf("get_rotation_matrix", "get_rotation_matrix", "调用点（虚线指向 utils 定义）");
+
+      // ===== quad_mesh/quad_mesh_args.py =====
+      file("nc_args", "quad_mesh/quad_mesh_args.py", "nc_train", "命令行参数", [
+        F("add_args", "argparse 参数定义", [P("parser")]),
+        F("get_args", "add_args(parser).parse_args() 的封装", [])
+      ]);
+
+      // ===== quad_mesh/quad_mesh_dataset.py =====
+      file("nc_dataset", "quad_mesh/quad_mesh_dataset.py", "nc_train",
+        "读三角网格、取面心/法向/局部标架、采样点", [
+        C("ReconDataset", "data.Dataset 子类", [
+          M("__init__", "", [P("file_path"), P("n_points"), P("n_samples", "默认 128"), P("grid_range", "默认 1.1")]),
+          M("get_face_center_points", "", []),
+          M("vector_u_v", "", [P("normals")]),
+          M("sample_gaussian_noise_around_shape", "", []),
+          M("__getitem__", "", [P("index")]),
+          M("__len__", "", [])
+        ])
+      ]);
+
+      // ===== models/__init__.py：无自己的函数，只再导出；仍挂三个文件子节点 =====
+      push("nc_models_init", "models/__init__.py", "nc_train",
+        "无自己的函数，只再导出 Network_predict_angle、MorseLoss_quad_mesh");
+
+      // ===== models/DiGS.py =====
+      file("nc_digs", "models/DiGS.py", "nc_models_init",
+        "Network_predict_angle：SIREN 解码器 + UNet 预测转角 theta；旧 Network 类训练未用", [
+        C("AbsLayer", "nn.Module", [
+          M("__init__", "", []),
+          M("forward", "", [P("x")])
+        ]),
+        F("exists", "", [P("val")]),
+        F("cast_tuple", "", [P("val"), P("repeat", "默认 1")]),
+        C("Decoder", "nn.Module", [
+          M("__init__", "", [P("udf", "默认 False")]),
+          M("forward", "*args, **kwargs（签名如此，不虚构参数名）", [])
+        ]),
+        C("Modulator", "nn.Module", [
+          M("__init__", "", [P("dim_in"), P("dim_hidden"), P("num_layers")]),
+          M("forward", "", [P("z")])
+        ]),
+        C("Network", "训练入口未用；训练在用的是 Network_predict_angle", [
+          M("__init__", "", [
+            P("latent_size", "默认 0"), P("in_dim", "默认 3"), P("decoder_hidden_dim", "默认 256"),
+            P("nl", "默认 'sine'"), P("decoder_n_hidden_layers", "默认 4"), P("init_type", "默认 'siren'"),
+            P("sphere_init_params", "默认 [1.6, 1.0]"), P("udf", "默认 False"), P("vae", "默认 False")
+          ]),
+          M("forward", "", [
+            P("non_mnfld_pnts"), P("mnfld_pnts", "默认 None"), P("near_points", "默认 None"),
+            P("only_nonmnfld", "默认 False"), P("latent", "默认 None")
+          ]),
+          M("get_latent_mods", "", [
+            P("mnfld_pnts", "默认 None"), P("latent", "默认 None"), P("rand_predict", "默认 True")
+          ])
+        ]),
+        C("Network_predict_angle", "训练在用的网络：SIREN 解码器 + UNet 预测转角", [
+          M("__init__", "", [
+            P("latent_size", "默认 0"), P("in_dim", "默认 3"), P("angle_in_dim", "默认 12"),
+            P("decoder_hidden_dim", "默认 256"), P("nl", "默认 'sine'"), P("decoder_n_hidden_layers", "默认 4"),
+            P("init_type", "默认 'siren'"), P("sphere_init_params", "默认 [1.6, 1.0]"),
+            P("udf", "默认 False"), P("vae", "默认 False")
+          ]),
+          M("forward", "", [
+            P("non_mnfld_pnts"), P("mnfld_pnts", "默认 None"), P("near_points", "默认 None"),
+            P("angle_features", "默认 None"), P("only_nonmnfld", "默认 False"), P("latent", "默认 None")
+          ]),
+          M("get_latent_mods", "", [
+            P("mnfld_pnts", "默认 None"), P("latent", "默认 None"), P("rand_predict", "默认 True")
+          ])
+        ]),
+        C("FCBlock", "nn.Module", [
+          M("__init__", "", [
+            P("in_features"), P("out_features"), P("num_hidden_layers"), P("hidden_features"),
+            P("outermost_linear", "默认 False"), P("nonlinearity", "默认 'sine'"),
+            P("init_type", "默认 'siren'"), P("sphere_init_params", "默认 [1.6, 1.0]")
+          ]),
+          M("forward", "", [P("coords"), P("mods", "默认 None")])
+        ]),
+        C("Sine", "nn.Module", [M("forward", "", [P("input")])]),
+        F("sine_init", "", [P("m")]),
+        F("first_layer_sine_init", "", [P("m")]),
+        F("geom_sine_init", "", [P("m")]),
+        F("first_layer_geom_sine_init", "", [P("m")]),
+        F("second_last_layer_geom_sine_init", "", [P("m")]),
+        F("last_layer_geom_sine_init", "", [P("m")]),
+        F("first_layer_mfgi_init", "", [P("m")]),
+        F("second_layer_mfgi_init", "", [P("m")]),
+        F("geom_relu_init", "", [P("m")]),
+        F("geom_relu_last_layers_init", "", [P("m")])
+      ]);
+
+      // ===== models/UNet.py =====
+      file("nc_unet", "models/UNet.py", "nc_digs", "UNet_predict_angle：12 维特征预测一个角", [
+        C("LayerNorm", "nn.Module", [
+          M("__init__", "", [P("normalized_shape"), P("eps", "默认 1e-06"), P("data_format", "默认 'channels_last'")]),
+          M("forward", "", [P("x")])
+        ]),
+        C("Stem", "nn.Module", [
+          M("__init__", "", [P("in_dim"), P("out_dim")]),
+          M("forward", "", [P("x")])
+        ]),
+        C("Block", "nn.Module", [
+          M("__init__", "", [P("dim"), P("drop_path", "默认 0.0"), P("layer_scale_init_value", "默认 1e-06")]),
+          M("forward", "", [P("x")])
+        ]),
+        F("cluster", "模块级函数（不在任何类里）", [P("x"), P("n_cluster", "默认 8")]),
+        C("Tail", "nn.Module", [
+          M("__init__", "", [P("in_dim"), P("out_dim")]),
+          M("forward", "", [P("x")])
+        ]),
+        C("UNet_predict_angle", "转角预测 UNet", [
+          M("__init__", "", [
+            P("C_in"), P("C_out"), P("depths", "默认 [3, 4, 6, 3]"), P("stem_dims", "默认 [256, 256, 512]"),
+            P("dims", "默认 [256, 256, 256, 512]"), P("decode_out_dims", "默认 [256, 256, 256, 128]"),
+            P("drop_path_rate", "默认 0.0"), P("layer_scale_init_value", "默认 1e-06")
+          ]),
+          M("_init_weights", "", [P("m")]),
+          M("forward", "", [P("x_in"), P("mass", "默认 None"), P("faces", "默认 None")])
+        ])
+      ]);
+
+      // ===== models/loss_quad_mesh.py =====
+      file("nc_loss", "models/loss_quad_mesh.py", "nc_models_init",
+        "MorseLoss_quad_mesh：SDF/离面/Eikonal/Morse，theta→alpha,beta 与邻面一致性", [
+        F("eikonal_loss", "", [P("nonmnfld_grad"), P("mnfld_grad"), P("eikonal_type", "默认 'abs'")]),
+        C("MorseLoss_quad_mesh", "训练在用的损失（from models import MorseLoss_quad_mesh as MorseLoss）", [
+          M("__init__", "", [
+            P("weights", "默认 None"), P("loss_type", "默认 'siren_wo_n_w_morse'"),
+            P("div_decay", "默认 'none'"), P("div_type", "默认 'l1'"),
+            P("vertex_neighbors_list", "默认 None"), P("vertex_neighbors", "默认 None"),
+            P("axis_angle_R_mat_list", "默认 None"), P("device", "默认 None")
+          ]),
+          M("forward", "", [
+            P("output_pred"), P("mnfld_points"), P("nonmnfld_points"), P("mnfld_n_gt", "默认 None"),
+            P("near_points", "默认 None"), P("batch_idx", "默认 0"), P("logdir", "默认 None"),
+            P("filename", "默认 None"), P("save_best", "默认 False"),
+            P("mnfld_pts_theta_output_pred", "默认 None"), P("local_coord_u", "默认 None"),
+            P("local_coord_v", "默认 None")
+          ]),
+          M("update_morse_weight", "", [P("current_iteration"), P("n_iterations"), P("params", "默认 None")])
+        ])
+      ]);
+
+      // ===== models/encoder.py =====
+      file("nc_encoder", "models/encoder.py", "nc_models_init",
+        "点云编码器，latent_size=0，当前训练默认不启用（虚线连 DiGS.py）", [
+        F("maxpool", "", [P("x"), P("dim", "默认 -1"), P("keepdim", "默认 False")]),
+        C("SimplePointnet", "nn.Module", [
+          M("__init__", "", [P("c_dim", "默认 128"), P("dim", "默认 3"), P("hidden_dim", "默认 128")]),
+          M("forward", "", [P("p")])
+        ]),
+        C("ResnetBlockFC", "nn.Module", [
+          M("__init__", "", [P("size_in"), P("size_out", "默认 None"), P("size_h", "默认 None")]),
+          M("forward", "", [P("x")])
+        ]),
+        C("ResnetPointnet", "nn.Module", [
+          M("__init__", "", [P("c_dim", "默认 128"), P("dim", "默认 3"), P("VAE", "默认 True")]),
+          M("name", "", []),
+          M("forward", "", [P("p")])
+        ])
+      ]);
+
+      // ===== utils/utils.py =====
+      file("nc_utils", "utils/utils.py", "nc_train",
+        "种子、日志、求导、邻面旋转、保存交叉场；loss 亦调用（虚线）", [
+        F("same_seed", "", [P("seed")]),
+        F("normalize_mesh_export", "", [P("mesh"), P("file_out", "默认 None")]),
+        F("log_string", "", [P("out_str"), P("log_file")]),
+        F("setup_logdir_only_log", "", [P("logdir"), P("args", "默认 None")]),
+        F("gradient", "", [P("inputs"), P("outputs"), P("create_graph", "默认 True"), P("retain_graph", "默认 True")]),
+        F("save_only_crossField", "", [
+          P("vector_alpha"), P("vector_beta"), P("batch_idx", "默认 None"),
+          P("output_dir", "默认 None"), P("shapename", "默认 None")
+        ]),
+        F("count_parameters", "", [P("model")]),
+        F("calculate_same_neighbors_verts", "", [P("vertex_neighbors")]),
+        F("get_sample_vers_neighbors_for_face_center_points_or_vertices", "", [P("mesh_path")]),
+        F("transform_vectors_only_rotation", "", [P("verct"), P("trans")]),
+        F("original_the_edge_information_to_face_neighbor_list", "",
+          [P("face_adjacency"), P("edge_info"), P("neighbors_each_face")]),
+        F("batch_axis_angle_to_rotation_matrix_only_rotation", "", [P("axes"), P("thetas")]),
+        F("get_rotation_matrix", "", [P("vertex_neighbors_list"), P("vertex_neighbors"), P("mesh_path")])
+      ]);
+
+      // ===== models/ocn（遗留） =====
+      push("nc_ocn", "models/ocn", "nc_root", "遗留，当前训练不用");
+      file("nc_ocn_common", "common.py", "nc_ocn", "", [
+        F("normalize_coord", "", [P("p"), P("vol_range"), P("plane", "默认 'xz'")]),
+        F("normalize_coordinate", "", [P("p"), P("plane", "默认 'xz'"), P("bbox_size", "默认 1.0")]),
+        F("normalize_3d_coordinate", "", [P("p"), P("bbox_size", "默认 1.0")]),
+        F("coordinate2index", "", [P("x"), P("reso"), P("coord_type", "默认 '2d'")]),
+        F("coord2index", "", [P("p"), P("vol_range"), P("reso", "默认 None"), P("plane", "默认 'xz'")])
+      ]);
+      file("nc_ocn_layers", "layers.py", "nc_ocn", "", [
+        C("ResnetBlockFC", "nn.Module", [
+          M("__init__", "", [P("size_in"), P("size_out", "默认 None"), P("size_h", "默认 None")]),
+          M("forward", "", [P("x")])
+        ])
+      ]);
+      file("nc_ocn_unet", "unet.py", "nc_ocn", "遗留 UNet，与 models/UNet.py 不是同一文件", [
+        F("conv3x3", "", [
+          P("in_channels"), P("out_channels"), P("stride", "默认 1"), P("padding", "默认 1"),
+          P("bias", "默认 True"), P("groups", "默认 1")
+        ]),
+        F("upconv2x2", "", [P("in_channels"), P("out_channels"), P("mode", "默认 'transpose'")]),
+        F("conv1x1", "", [P("in_channels"), P("out_channels"), P("groups", "默认 1")]),
+        C("DownConv", "nn.Module", [
+          M("__init__", "", [P("in_channels"), P("out_channels"), P("pooling", "默认 True")]),
+          M("forward", "", [P("x")])
+        ]),
+        C("UpConv", "nn.Module", [
+          M("__init__", "", [P("in_channels"), P("out_channels"), P("merge_mode", "默认 'concat'"), P("up_mode", "默认 'transpose'")]),
+          M("forward", "", [P("from_down"), P("from_up")])
+        ]),
+        C("UNet", "nn.Module", [
+          M("__init__", "另有 **kwargs", [
+            P("num_classes"), P("in_channels", "默认 3"), P("depth", "默认 5"),
+            P("start_filts", "默认 64"), P("up_mode", "默认 'transpose'"), P("merge_mode", "默认 'concat'")
+          ]),
+          M("weight_init", "", [P("m")]),
+          M("reset_params", "", []),
+          M("forward", "", [P("x")])
+        ])
+      ]);
+      file("nc_ocn_unet3d", "unet3d.py", "nc_ocn", "", [
+        F("number_of_features_per_level", "", [P("init_channel_number"), P("num_levels")]),
+        F("conv3d", "", [P("in_channels"), P("out_channels"), P("kernel_size"), P("bias"), P("padding", "默认 1")]),
+        F("create_conv", "", [
+          P("in_channels"), P("out_channels"), P("kernel_size"), P("order"), P("num_groups", "默认 8"), P("padding", "默认 1")
+        ]),
+        C("SingleConv", "nn.Sequential", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("kernel_size", "默认 3"), P("order", "默认 'crg'"),
+            P("num_groups", "默认 8"), P("padding", "默认 1")
+          ])
+        ]),
+        C("DoubleConv", "nn.Sequential", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("encoder"), P("kernel_size", "默认 3"),
+            P("order", "默认 'crg'"), P("num_groups", "默认 8")
+          ])
+        ]),
+        C("ExtResNetBlock", "nn.Module", [
+          M("__init__", "另有 **kwargs", [
+            P("in_channels"), P("out_channels"), P("kernel_size", "默认 3"), P("order", "默认 'cge'"),
+            P("num_groups", "默认 8")
+          ]),
+          M("forward", "", [P("x")])
+        ]),
+        C("Encoder", "nn.Module", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("conv_kernel_size", "默认 3"),
+            P("apply_pooling", "默认 True"), P("pool_kernel_size", "默认 (2, 2, 2)"), P("pool_type", "默认 'max'"),
+            P("basic_module", "默认 DoubleConv"), P("conv_layer_order", "默认 'crg'"), P("num_groups", "默认 8")
+          ]),
+          M("forward", "", [P("x")])
+        ]),
+        C("Decoder", "nn.Module", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("kernel_size", "默认 3"), P("scale_factor", "默认 (2, 2, 2)"),
+            P("basic_module", "默认 DoubleConv"), P("conv_layer_order", "默认 'crg'"),
+            P("num_groups", "默认 8"), P("mode", "默认 'nearest'")
+          ]),
+          M("forward", "", [P("encoder_features"), P("x")]),
+          M("_joining", "", [P("encoder_features"), P("x"), P("concat")])
+        ]),
+        C("Upsampling", "nn.Module", [
+          M("__init__", "", [
+            P("transposed_conv"), P("in_channels", "默认 None"), P("out_channels", "默认 None"),
+            P("kernel_size", "默认 3"), P("scale_factor", "默认 (2, 2, 2)"), P("mode", "默认 'nearest'")
+          ]),
+          M("forward", "", [P("encoder_features"), P("x")]),
+          M("_interpolate", "", [P("x"), P("size"), P("mode")])
+        ]),
+        C("FinalConv", "nn.Sequential", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("kernel_size", "默认 3"),
+            P("order", "默认 'crg'"), P("num_groups", "默认 8")
+          ])
+        ]),
+        C("Abstract3DUNet", "nn.Module", [
+          M("__init__", "另有 **kwargs", [
+            P("in_channels"), P("out_channels"), P("final_sigmoid", "默认 False"), P("basic_module"),
+            P("f_maps", "默认 64"), P("layer_order", "默认 'gcr'"), P("num_groups", "默认 8"),
+            P("num_levels", "默认 4"), P("is_segmentation", "默认 False"), P("testing", "默认 False")
+          ]),
+          M("forward", "", [P("x")])
+        ]),
+        C("UNet3D", "Abstract3DUNet 子类", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("final_sigmoid", "默认 True"), P("f_maps", "默认 64"),
+            P("layer_order", "默认 'gcr'"), P("num_groups", "默认 8"),
+            P("num_levels", "默认 4"), P("is_segmentation", "默认 True")
+          ])
+        ]),
+        C("ResidualUNet3D", "Abstract3DUNet 子类", [
+          M("__init__", "", [
+            P("in_channels"), P("out_channels"), P("final_sigmoid", "默认 True"), P("f_maps", "默认 64"),
+            P("layer_order", "默认 'gcr'"), P("num_groups", "默认 8"),
+            P("num_levels", "默认 5"), P("is_segmentation", "默认 True")
+          ])
+        ]),
+        F("get_model", "", [P("config")])
+      ]);
+
+      return out;
+    })();
     // 右键虚线（无向边，normalizeLinks 会按 a<b 排序去重）：
-    // 1. DiGS.py ↔ encoder.py（编码器默认不启用）；2. loss_quad_mesh.py ↔ utils/utils.py（调用关系，不重复挂树）
+    // 1) 文件级两条：DiGS.py ↔ encoder.py（编码器默认不启用）、
+    //    loss_quad_mesh.py ↔ utils/utils.py（调用关系，不重复挂树）；
+    // 2) train_quad_mesh.py 里的调用点 → 对应定义节点（调用点 id 均不同于定义节点 id）。
     const NEURCROSS_DEFAULT_LINKS = [
       { a: "nc_digs", b: "nc_encoder" },
-      { a: "nc_loss", b: "nc_utils" }
+      { a: "nc_loss", b: "nc_utils" },
+      { a: "nc_tr_args", b: "nc_args_get_args" },
+      { a: "nc_tr_train_set", b: "nc_dataset_ReconDataset" },
+      { a: "nc_tr_net", b: "nc_digs_Network_predict_angle" },
+      { a: "nc_tr_criterion", b: "nc_loss_MorseLoss_quad_mesh" },
+      { a: "nc_tr_same_seed", b: "nc_utils_same_seed" },
+      { a: "nc_tr_setup_logdir_only_log", b: "nc_utils_setup_logdir_only_log" },
+      { a: "nc_tr_count_parameters", b: "nc_utils_count_parameters" },
+      { a: "nc_tr_get_sample_vers_neighbors_for_face_center_points_or_vertices",
+        b: "nc_utils_get_sample_vers_neighbors_for_face_center_points_or_vertices" },
+      { a: "nc_tr_calculate_same_neighbors_verts", b: "nc_utils_calculate_same_neighbors_verts" },
+      { a: "nc_tr_get_rotation_matrix", b: "nc_utils_get_rotation_matrix" }
     ];
 
     function cloneNeurCrossNodes() {
@@ -818,23 +1200,32 @@
       }));
     }
 
-    // 判断已有 NeurCross 目录是否还是「不完整示例树 / 尚未画上架构」：
-    // 命中示例节点名（same_seed 等），或整棵树里既没有 train_quad_mesh.py 也没有 nc_ 前缀节点。
-    function isNeurCrossSampleTree(cat) {
+    // 判断已有 NeurCross 目录是否已是「带函数和参数的完整树」（不要覆盖 done/completedAt）：
+    // 当且仅当同时满足
+    //   A. 节点名中含 train_quad_mesh.py；
+    //   B. 同时存在这些函数/类节点名（精确匹配 name）：
+    //      add_args、ReconDataset、Network_predict_angle、MorseLoss_quad_mesh、same_seed。
+    // 否则视为需要升级（整棵预置树替换是允许的）。
+    // 注：用户最早那棵不完整 utils 示例树虽含 same_seed / normalize_mesh_export，
+    // 但没有 train_quad_mesh.py，A 不成立 → 不会误判为完整树；
+    // 上一版「文件级架构」有 train_quad_mesh.py 和 nc_ 前缀，但没有 add_args 等函数节点 → 需要升级。
+    const NEURCROSS_FULL_TREE_MARKERS = [
+      "add_args", "ReconDataset", "Network_predict_angle", "MorseLoss_quad_mesh", "same_seed"
+    ];
+    function isNeurCrossFullTree(cat) {
       const nodes = (cat && Array.isArray(cat.nodes)) ? cat.nodes : [];
       const names = nodes.map(n => (n && n.name) || "");
-      if (names.some(nm => /same_seed|normalize_mesh_export|file_out/.test(nm))) return true;
-      if (names.some(nm => /train_quad_mesh\.py/.test(nm))) return false;
-      if (nodes.some(n => n && String(n.id).indexOf("nc_") === 0)) return false;
-      return true;
+      if (!names.some(nm => nm.indexOf("train_quad_mesh.py") !== -1)) return false;
+      const nameSet = new Set(names);
+      return NEURCROSS_FULL_TREE_MARKERS.every(nm => nameSet.has(nm));
     }
 
     // 纯函数：确保 catalogs 里存在「NeurCross」目录并画上完整架构。
     // - 查找：优先 name === "NeurCross"，其次稳定 id === cat_neurcross_arch；
 //   找到后保留其原有 id 和 name（不换随机 id，不动 currentCatalogId / 插入记录）。
     // - 未找到：把预置目录 append 到末尾（不改 currentCatalogId）。
-    // - 已有但不完整（示例树 / 未画架构）：替换 nodes / links / linkDone 为完整架构预置数据。
-    // - 已是完整架构：原样返回，不覆盖 done / completedAt / 打卡。
+    // - 已有但不是函数级完整树（示例树 / 上一版文件级架构）：替换 nodes / links / linkDone 为新完整预置树。
+    // - 已是函数级完整树：原样返回，不覆盖 done / completedAt / 打卡，也不重置 links。
     function ensureNeurCrossCatalog(catalogs) {
       if (!Array.isArray(catalogs)) return catalogs;
       let cat = null;
@@ -856,7 +1247,7 @@
         });
         return catalogs;
       }
-      if (isNeurCrossSampleTree(cat)) {
+      if (!isNeurCrossFullTree(cat)) {
         cat.nodes = cloneNeurCrossNodes();
         cat.links = NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b }));
         cat.linkDone = {};
@@ -1141,15 +1532,38 @@
       for (const r of rects) if (rlSegHitsRect(x1, y1, x2, y2, r)) return true;
       return false;
     }
-    // 接驳点：任务连线固定接到卡片「右侧边的竖直中点」，
-    // 不再按主导方向选顶/底/左边；无论对方在上、下、左、右还是斜向，一律右侧中点。
-    function rlAttachPoint(rect) {
-      return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
+    // 接驳边选择：同时看两端矩形，选「朝向对方」的那条边。
+    // 用两卡中心连线的水平/垂直主导方向：水平主导 → 左/右边；垂直主导 → 上/下边。
+    function rlSideToward(rect, other) {
+      const c = rlCenter(rect), o = rlCenter(other || rect);
+      const dx = o.x - c.x, dy = o.y - c.y;
+      if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "right" : "left";
+      return dy >= 0 ? "bottom" : "top";
     }
-    // 端点卡片：封住内部，但在右侧留出出口（曲线先向右伸出再弯向对方，不会绕回穿卡）
-    function rlEndpointBlock(rect) {
+    // 接驳点：取被选中的那条边的中点，并附带该边的外法向 (nx, ny)：
+    // 右 +x、左 -x、上 -y、下 +y。后续曲线引出 / A* 出口偏移都沿该法向伸出，
+    // 不再写死 +x，避免两卡上下排列时在右侧形成断开的弓形 / 竖虚线括号。
+    function rlSidePoint(rect, side) {
+      switch (side) {
+        case "left":   return { x: rect.x,               y: rect.y + rect.h / 2, nx: -1, ny: 0 };
+        case "top":    return { x: rect.x + rect.w / 2,  y: rect.y,              nx: 0,  ny: -1 };
+        case "bottom": return { x: rect.x + rect.w / 2,  y: rect.y + rect.h,     nx: 0,  ny: 1 };
+        default:       return { x: rect.x + rect.w,      y: rect.y + rect.h / 2, nx: 1,  ny: 0 };
+      }
+    }
+    function rlAttachPoint(rect, other) {
+      return rlSidePoint(rect, rlSideToward(rect, other));
+    }
+    // 端点卡片：封住内部，但只在「被选中的接驳边」留出口（其余边封死），
+    // 曲线先沿该边外法向伸出再弯向对方，不会绕回穿卡。
+    function rlEndpointBlock(rect, side) {
       const E = RL_EXIT;
-      return rlRect(rect.x, rect.y, Math.max(1, rect.w - E), rect.h);
+      switch (side) {
+        case "left":   return rlRect(rect.x + E, rect.y, Math.max(1, rect.w - E), rect.h);
+        case "top":    return rlRect(rect.x, rect.y + E, rect.w, Math.max(1, rect.h - E));
+        case "bottom": return rlRect(rect.x, rect.y, rect.w, Math.max(1, rect.h - E));
+        default:       return rlRect(rect.x, rect.y, Math.max(1, rect.w - E), rect.h);
+      }
     }
     function rlSampleCubic(p, c1, c2, q, n) {
       const pts = [];
@@ -1167,13 +1581,15 @@
       const d = Math.hypot(q.x - p.x, q.y - p.y);
       return Math.max(26, Math.min(80, d * 0.32));
     }
-    // 圆滑三次贝塞尔：两端控制点均沿「右缘外法向」（+x）水平伸出，
-    // 因此曲线在起点处切线严格向右、到达终点时也从右侧水平进入对方右侧中点，
-    // 两卡上下排列时自然形成右侧的平滑弓形 / C 形，而非折线。
+    // 圆滑三次贝塞尔兜底：两端控制点均沿各自接驳边的外法向伸出
+    // （右侧 +x、左侧 -x、上 -y、下 +y；无法向信息时回退 +x），
+    // 曲线在起点/终点处的切线严格沿该边法向，从选中的那条边干净地离开 / 进入。
     function rlTwoPointCurve(p, q) {
       const k = rlExitLen(p, q);
-      const c1 = { x: p.x + k, y: p.y };
-      const c2 = { x: q.x + k, y: q.y };
+      const pnx = (p.nx == null) ? 1 : p.nx, pny = (p.ny == null) ? 0 : p.ny;
+      const qnx = (q.nx == null) ? 1 : q.nx, qny = (q.ny == null) ? 0 : q.ny;
+      const c1 = { x: p.x + k * pnx, y: p.y + k * pny };
+      const c2 = { x: q.x + k * qnx, y: q.y + k * qny };
       const d = "M " + p.x.toFixed(1) + " " + p.y.toFixed(1) +
         " C " + c1.x.toFixed(1) + " " + c1.y.toFixed(1) + ", " +
         c2.x.toFixed(1) + " " + c2.y.toFixed(1) + ", " + q.x.toFixed(1) + " " + q.y.toFixed(1);
@@ -1283,27 +1699,30 @@
       }
       return { d: d.join(" "), pts: sample };
     }
-    // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用），
-    // 起终点固定为各自右侧边竖直中点，先沿右侧外法向伸出一小段再平滑弯向对方。
-    // hardRects 为全部卡片（两端卡片只封「留出右侧出口的内部」），softRects 为
+    // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用）。
+    // 起终点为各自「朝向对方那条边」的中点（rlAttachPoint 双矩形版本），
+    // 先沿该边外法向伸出一小段再平滑弯向对方；A* 的起终点也沿同一法向偏移。
+    // hardRects 为全部卡片（两端卡片只封「留出接驳边出口的内部」），softRects 为
     // 分支走廊/已有连线等软障碍（先带着绕，绕不开再降级）。返回 { d, pts }。
     function rlPlanLinkPath(aRect, bRect, hardRects, softRects, bounds) {
-      const pa = rlAttachPoint(aRect);
-      const pb = rlAttachPoint(bRect);
+      const sideA = rlSideToward(aRect, bRect);
+      const sideB = rlSideToward(bRect, aRect);
+      const pa = rlSidePoint(aRect, sideA);
+      const pb = rlSidePoint(bRect, sideB);
       const hard = hardRects
         .filter(r => r !== aRect && r !== bRect)
         .map(r => rlInflate(r, RL_MARGIN));
-      // 端点卡片封内部（右侧留出口），再外扩一点，避免平滑后的曲线贴边切进卡片
-      hard.push(rlInflate(rlEndpointBlock(aRect), 6));
-      hard.push(rlInflate(rlEndpointBlock(bRect), 6));
+      // 端点卡片封内部（只在接驳边留出口），再外扩一点，避免平滑后的曲线贴边切进卡片
+      hard.push(rlInflate(rlEndpointBlock(aRect, sideA), 6));
+      hard.push(rlInflate(rlEndpointBlock(bRect, sideB), 6));
       const soft = (softRects || []).map(r => rlInflate(r, 6));
-      // 右侧出口路径点：从右侧中点水平向右伸出，A* 在两个出口点之间绕障；
-      // 额外插入 45% 处的中间引出点，让平滑后两端保持明确的水平离开/进入切线
+      // 出口路径点：从接驳边中点沿外法向伸出，A* 在两个出口点之间绕障；
+      // 额外插入 45% 处的中间引出点，让平滑后两端保持明确的法向离开/进入切线
       const ex = Math.max(36, Math.min(90, rlExitLen(pa, pb)));
-      const ea = { x: pa.x + ex, y: pa.y };
-      const eb = { x: pb.x + ex, y: pb.y };
-      const ma = { x: pa.x + ex * 0.45, y: pa.y };
-      const mb = { x: pb.x + ex * 0.45, y: pb.y };
+      const ea = { x: pa.x + ex * pa.nx, y: pa.y + ex * pa.ny };
+      const eb = { x: pb.x + ex * pb.nx, y: pb.y + ex * pb.ny };
+      const ma = { x: pa.x + ex * 0.45 * pa.nx, y: pa.y + ex * 0.45 * pa.ny };
+      const mb = { x: pb.x + ex * 0.45 * pb.nx, y: pb.y + ex * 0.45 * pb.ny };
       const trySets = soft.length ? [hard.concat(soft), hard] : [hard];
       for (const obs of trySets) {
         const direct = rlTwoPointCurve(pa, pb);
@@ -1413,6 +1832,40 @@
       requestAnimationFrame(() => {
         const svg = document.getElementById("mindSvg");
         if (!svg) return;
+        // 说明小字换行后按实际高度重排垂直间距：
+        // 先量每块（按钮 + 说明 + 完成时间）的实际占位，再按叶子实际行高重新堆叠，
+        // 避免多行说明与下一块重叠、挡住连线（ROW_H=56 只是单行说明时的下限）
+        const elByNid = new Map();
+        box.querySelectorAll(".mm-node").forEach(el => elByNid.set(el.dataset.nid, el));
+        for (const n of allNodes) {
+          const el = elByNid.get(n.nid);
+          const btn = el && el.querySelector(".node-btn");
+          if (!btn) { n.rowH = ROW_H; continue; }
+          const noteEl = btn.querySelector(".node-note");
+          const timeEl = btn.querySelector(".node-time");
+          let extra = 8; // 基础行间隙
+          if (timeEl) extra += 13;
+          if (noteEl) extra += noteEl.offsetHeight + (timeEl ? 10 : 2);
+          n.rowH = Math.max(ROW_H, btn.offsetHeight + extra);
+        }
+        (function stackY(node, yStart) {
+          if (!node.children.length) {
+            node.spanH = node.rowH;
+            node.y = yStart + node.rowH / 2;
+            return;
+          }
+          let cy = yStart;
+          for (const ch of node.children) { stackY(ch, cy); cy += ch.spanH; }
+          const span = cy - yStart;
+          node.spanH = Math.max(span, node.rowH);
+          node.y = yStart + span / 2;
+        })(root, PAD_Y);
+        const finalH = Math.max(360, root.spanH + PAD_Y * 2);
+        if (Math.abs(finalH - totalH) > 0.5) box.style.height = finalH + "px";
+        for (const n of allNodes) {
+          const el = elByNid.get(n.nid);
+          if (el) el.style.top = n.y + "px";
+        }
         // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带）
         const branchCorridors = [];
         const paths = edges.map(({ from, to }) => {
@@ -1466,7 +1919,7 @@
             done: btn.classList.contains("done")
           });
         });
-        const linkBounds = { x1: -80, y1: -80, x2: totalW + 80, y2: totalH + 80 };
+        const linkBounds = { x1: -80, y1: -80, x2: totalW + 80, y2: finalH + 80 };
         const linkOut = [];
         const linkSoft = []; // 已画连线采样成小矩形，让后续连线互相错开
         for (const l of state.links) {
@@ -1672,6 +2125,14 @@
       ctxTarget = { refId: nodeEl.dataset.ref || "", isRoot };
       const hasLinks = !isRoot && !!ctxTarget.refId && linksOf(ctxTarget.refId).length > 0;
       ctxMenu.querySelector('[data-act="rename"]').hidden = isRoot;
+      // 插入/编辑说明：虚拟根隐藏；普通任务块（含 nc_root）都有。
+      // 无说明时显示「插入说明」，已有说明时显示「编辑说明」。
+      const noteBtn = ctxMenu.querySelector('[data-act="note"]');
+      noteBtn.hidden = isRoot;
+      if (!isRoot) {
+        const noteNode = ctxTarget.refId ? nodeById(ctxTarget.refId) : null;
+        noteBtn.textContent = (noteNode && noteNode.note) ? "编辑说明" : "插入说明";
+      }
       ctxMenu.querySelector('[data-act="link"]').hidden = isRoot;
       ctxMenu.querySelector('[data-act="unlink"]').hidden = !hasLinks;
       ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
@@ -1689,6 +2150,21 @@
       if (!editor) return;
       const ed = editor;
       editor = null;
+      if (ed.mode === "note") {
+        // 说明模式单独处理：允许为空（空 = 清除 note），
+        // 不能沿用改名那个 if (commit && value)，否则无法清空说明
+        const noteValue = ed.input ? ed.input.value.trim().slice(0, 160) : "";
+        if (ed.wrap && ed.wrap.parentNode) ed.wrap.remove();
+        if (commit) {
+          const node = nodeById(ed.nodeId);
+          if (node && (node.note || "") !== noteValue) {
+            node.note = noteValue;
+            save();
+          }
+        }
+        render(); // 说明高度参与布局，整树重排（含侧栏状态刷新）
+        return;
+      }
       const value = ed.input ? ed.input.value.trim().slice(0, 40) : "";
       if (ed.wrap && ed.wrap.parentNode) ed.wrap.remove();
       if (commit && value) {
@@ -1714,14 +2190,15 @@
       }
     }
 
-    function bindEditorInput(input) {
+    function bindEditorInput(input, allowEmpty) {
       input.addEventListener("pointerdown", e => e.stopPropagation());
       input.addEventListener("mousedown", e => e.stopPropagation());
       input.addEventListener("click", e => e.stopPropagation());
       input.addEventListener("keydown", e => {
         if (e.key === "Enter") {
           e.preventDefault();
-          if (!input.value.trim()) return;
+          // 说明模式允许空值提交（空 = 清除）；改名/新增仍要求非空
+          if (!allowEmpty && !input.value.trim()) return;
           closeEditor(true);
         } else if (e.key === "Escape") {
           e.preventDefault();
@@ -1750,6 +2227,34 @@
       bindEditorInput(input);
       input.focus();
       input.select();
+    }
+
+    // 说明编辑：与改名同风格（内联输入框，Enter 保存 / Esc 取消），
+    // 放在该任务块下方；允许为空（空 = 清除 note），最多 160 字（与 normalizeState 一致）
+    function startNoteEditor(nodeId) {
+      const node = nodeById(nodeId);
+      const nodeEl = findNodeEl(nodeId);
+      if (!node || !nodeEl) return;
+      closeEditor(false);
+      const btn = nodeEl.querySelector(".node-btn");
+      if (!btn) return;
+      nodeEl.classList.add("editing");
+      const wrap = document.createElement("div");
+      wrap.className = "node-note-edit";
+      wrap.style.left = nodeEl.offsetLeft + "px";
+      wrap.style.top = (nodeEl.offsetTop + nodeEl.offsetHeight / 2 + 6) + "px";
+      const input = document.createElement("textarea");
+      input.className = "node-note-input";
+      input.maxLength = 160;
+      input.rows = 2;
+      input.value = node.note || "";
+      input.setAttribute("aria-label", "编辑说明");
+      input.placeholder = "说明（留空即清除，Enter 保存 / Esc 取消）";
+      wrap.appendChild(input);
+      catTree.appendChild(wrap);
+      editor = { mode: "note", nodeId, input, wrap };
+      bindEditorInput(input, true);
+      input.focus();
     }
 
     function startAddEditor(parentId) {
@@ -1801,7 +2306,7 @@
     }
 
     catTree.addEventListener("click", e => {
-      if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add")) return;
+      if (e.target.closest(".node-inline-input") || e.target.closest(".mm-inline-add") || e.target.closest(".node-note-edit")) return;
       // 目录 logo：单击跳转到对应目录的树（不触发打卡）
       const logoBtn = e.target.closest(".catalog-logo");
       if (logoBtn && logoBtn.dataset.catalogTarget) {
@@ -1854,6 +2359,7 @@
       closeMenu();
       if (act === "add") startAddEditor(refId || null);
       else if (act === "rename") startRenameEditor(refId);
+      else if (act === "note") startNoteEditor(refId);
       else if (act === "delete") deleteNode(refId);
       else if (act === "link") enterLinkMode(refId, "add");
       else if (act === "unlink") {
@@ -1900,7 +2406,7 @@
     // 是否当作「点击空白取消连线」推迟到 pointerup，按位移阈值判定。
     mindmapStage.addEventListener("pointerdown", e => {
       if (e.button !== 0) return;
-      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .ctx-menu")) return;
+      if (e.target.closest(".mm-node, .mm-inline-add, .node-inline-input, .node-note-edit, .ctx-menu")) return;
       panDrag = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, moved: false };
       mindmapStage.classList.add("panning");
       try { mindmapStage.setPointerCapture(e.pointerId); } catch (err) {}
