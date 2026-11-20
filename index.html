@@ -193,7 +193,7 @@
       align-items: center;
       z-index: 2;
       white-space: nowrap;
-      padding: 4px 0;
+      padding: 2px 0;
     }
     .mm-node[draggable="true"] { cursor: grab; }
     .mm-node.dragging { opacity: 0.45; }
@@ -261,6 +261,24 @@
       text-align: left;
     }
     .node-btn.done .node-note { top: calc(100% + 14px); }
+
+    /* 参数叶子（深度较大的末梢，通常只是短参数名/调用点）：同一套胶囊风格
+       （虚线圆角、左红点、同配色），只收紧内边距和字号，行距也随之排紧 */
+    .mm-node[data-leaf="param"] .node-btn {
+      padding: 2px 10px;
+      font-size: 11px;
+      gap: 5px;
+    }
+    .mm-node[data-leaf="param"] .node-btn .state { font-size: 10px; }
+    .mm-node[data-leaf="param"] .node-dot { width: 7px; height: 7px; }
+    .mm-node[data-leaf="param"] .node-time { font-size: 9px; }
+    .mm-node[data-leaf="param"] .node-note {
+      padding: 0 8px;
+      font-size: 9px;
+      line-height: 1.35;
+      top: calc(100% + 2px);
+    }
+    .mm-node[data-leaf="param"] .node-btn.done .node-note { top: calc(100% + 11px); }
 
     .mm-node:hover { z-index: 10; }
     .mm-node.editing { z-index: 20; }
@@ -1323,6 +1341,9 @@
 
     const ZOOM_MIN = 0.3;
     const ZOOM_MAX = 3;
+    // 大树（如 NeurCross 函数级完整树）1:1 会远超视口：最小缩放按当前树大小动态下探，
+    // 保证总能缩到整棵展开的树都进视野；小目录仍保持 0.3 下限，不会被缩得过小
+    let zoomMin = ZOOM_MIN;
 
     function nodeById(id) { return state.nodes.find(n => n.id === id) || null; }
     function childNodes(parentId) {
@@ -1458,6 +1479,8 @@
           depth,
           done,
           ntype: "node",
+          // 叶子分两档：深度>=3 的末梢（参数/调用点）用紧凑行高，其余用标准行高
+          leafKind: leaf ? (depth >= 3 ? "param" : "std") : "",
           refId: n.id,
           draggable: true,
           html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, note: n.note || "", toggle: true, tip }),
@@ -1482,18 +1505,148 @@
       const box = document.getElementById("catTree");
       if (!box) return;
       box.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${scale})`;
+      scheduleViewportUpdate(); // 平移/缩放后补画视野附近的节点与连线（rAF 节流）
     }
 
     function clampPan() {
       const stage = document.getElementById("mindmapStage");
-      const box = document.getElementById("catTree");
-      if (!stage || !box) return;
+      if (!stage) return;
       const sw = stage.clientWidth, sh = stage.clientHeight;
-      // 平移量作用于缩放之前，因此可平移范围要按缩放后的画布尺寸计算
-      const bw = box.offsetWidth * scale, bh = box.offsetHeight * scale;
+      // 平移量作用于缩放之前，因此可平移范围要按缩放后的「逻辑画布」尺寸计算。
+      // 虚拟化后画布高度不再依赖真实超高 DOM 的 offsetHeight，改用布局得到的逻辑尺寸
+      const bw = logicalW * scale, bh = logicalH * scale;
       const margin = 80;
       pan.x = Math.min(sw - margin, Math.max(margin - bw, pan.x));
       pan.y = Math.min(sh - margin, Math.max(margin - bh, pan.y));
+    }
+
+    /* ==== VIEWPORT-VIRTUALIZATION ====
+       整棵树在数据与布局上保持全部展开（每个节点都有世界坐标），
+       但 DOM 只渲染当前视野（外加一圈世界坐标边距）附近的节点 / 分支 / 连线；
+       平移 / 缩放时按 rAF 节流补画或回收，视觉上仍是完整的展开树。 */
+    const ROW_H_STD = 40;    // 文件/类/函数节点行高（原 56）
+    const ROW_H_PARAM = 22;  // 参数叶子行高（原 56）：短参数名不需要 56px
+    const PAD_Y_TREE = 16;   // 原 28
+    const LEVEL_GAP = 210;   // 原 250：略收横向层距，文字仍不互相覆盖
+    const PAD_X_TREE = 24;
+    const VIEW_MARGIN = 480; // 视野外预渲染的世界坐标边距
+
+    let logicalW = 920, logicalH = 360; // 逻辑画布尺寸（全树展开）
+    let layoutCache = null;             // 本次 render 的布局结果（节点坐标/分支 path/卡片几何）
+    let linkPathCache = new Map();      // 连线路径缓存（render 后失效重算）
+    let linkSoftRects = [];             // 已规划连线的采样软障碍（让后续连线互相错开）
+    let pendingAutoFit = false;         // 切目录/首次打开时自动 fit 整棵树
+    let viewportRaf = 0;
+    let lastViewKey = "";
+
+    // 纯函数：当前视野对应的世界坐标矩形（含边距）
+    function worldViewRect(sw, sh) {
+      return {
+        x1: -pan.x / scale - VIEW_MARGIN,
+        y1: -pan.y / scale - VIEW_MARGIN,
+        x2: (sw - pan.x) / scale + VIEW_MARGIN,
+        y2: (sh - pan.y) / scale + VIEW_MARGIN
+      };
+    }
+    // 纯函数：节点中心是否落在视野内（x 方向多留一个胶囊宽度，避免左缘截断）
+    function nodeInView(n, view) {
+      return n.y >= view.y1 - 40 && n.y <= view.y2 + 40 &&
+        n.x >= view.x1 - 420 && n.x <= view.x2 + 120;
+    }
+    // 纯函数：矩形与视野是否相交
+    function rectInView(r, view) {
+      return r.x + (r.w || 0) >= view.x1 && r.x <= view.x2 &&
+        r.y + (r.h || 0) >= view.y1 && r.y <= view.y2;
+    }
+    // 纯函数：把 w×h 的逻辑画布放进 sw×sh 的视口需要的缩放。
+    // 小树（放得下）维持 1:1 可读比例；大树按 fit 缩小，但不小于 0.02
+    function fitScaleFor(sw, sh, w, h) {
+      const fit = Math.min(sw / w, sh / h);
+      return fit >= 1 ? 1 : Math.max(fit * 0.97, 0.02);
+    }
+    // 自动 fit：整棵已展开的树尽量全部纳入视口并居中（打开/切换目录时调用）
+    function applyFitView() {
+      const stage = document.getElementById("mindmapStage");
+      if (!stage) return;
+      const sw = stage.clientWidth, sh = stage.clientHeight;
+      scale = fitScaleFor(sw, sh, logicalW, logicalH);
+      pan.x = (sw - logicalW * scale) / 2;
+      pan.y = (sh - logicalH * scale) / 2;
+      applyPan();
+    }
+    // 大树动态下探最小缩放（能缩到 fit 的一半，仍留出放大余量）
+    function updateDynamicZoomMin() {
+      const stage = document.getElementById("mindmapStage");
+      if (!stage) return;
+      const fit = Math.min(stage.clientWidth / logicalW, stage.clientHeight / logicalH);
+      zoomMin = fit >= 1 ? ZOOM_MIN : Math.max(0.02, Math.min(ZOOM_MIN, fit * 0.5));
+    }
+    function scheduleViewportUpdate() {
+      if (viewportRaf) return;
+      viewportRaf = requestAnimationFrame(() => {
+        viewportRaf = 0;
+        updateViewport();
+      });
+    }
+    // 只把视野附近的节点画进 DOM：视野外的节点 display:none 回收（不参与布局/绘制），
+    // 分支与任务连线只画两端都在视野附近的；缩小到整棵树进视口时自然全部画出
+    function updateViewport(force) {
+      const svg = document.getElementById("mindSvg");
+      const stage = document.getElementById("mindmapStage");
+      if (!svg || !stage || !layoutCache) return;
+      const view = worldViewRect(stage.clientWidth, stage.clientHeight);
+      const key = [view.x1, view.y1, view.x2, view.y2].map(v => Math.round(v / 60)).join("|");
+      if (!force && key === lastViewKey) return;
+      lastViewKey = key;
+      const { nodes, edges, cardRects, corridors, byNid } = layoutCache;
+
+      for (const n of nodes) {
+        const el = byNid.get(n.nid);
+        if (!el) continue;
+        const vis = n.ntype === "root" || nodeInView(n, view);
+        if (vis === (el.style.display === "none")) el.style.display = vis ? "" : "none";
+      }
+
+      const parts = [];
+      for (const e of edges) {
+        if (!e.d) continue;
+        if (!(nodeInView(e.from, view) && nodeInView(e.to, view))) continue;
+        parts.push(`<path class="mindmap-branch" d="${e.d}" fill="${e.to.done ? DONE_HEX : TODO_HEX}" />`);
+      }
+
+      const rectByRef = new Map(cardRects.map(r => [r.ref, r]));
+      for (const l of state.links) {
+        const ra = rectByRef.get(l.a), rb = rectByRef.get(l.b);
+        if (!ra || !rb) continue;
+        if (!(rectInView(ra, view) && rectInView(rb, view))) continue;
+        const lkey = l.a + "\u0000" + l.b;
+        let planned = linkPathCache.get(lkey);
+        if (!planned) {
+          // A* 只在「两端卡片外扩的局部小栅格」上尝试：超预算/障碍过多直接回退
+          // 到朝向对边中点的圆滑曲线，绝不会在整张巨幅画布上跑几十万次迭代
+          const lb = {
+            x1: Math.min(ra.x, rb.x) - 240, y1: Math.min(ra.y, rb.y) - 240,
+            x2: Math.max(ra.x + ra.w, rb.x + rb.w) + 240, y2: Math.max(ra.y + ra.h, rb.y + rb.h) + 240
+          };
+          const near = (r, pad) =>
+            r.x + (r.w || 0) >= lb.x1 - pad && r.x <= lb.x2 + pad &&
+            r.y + (r.h || 0) >= lb.y1 - pad && r.y <= lb.y2 + pad;
+          const obs = cardRects.filter(r => r !== ra && r !== rb && near(r, 0));
+          const soft = corridors.filter(r => near(r, 6))
+            .concat(linkSoftRects.filter(r => near(r, 6)));
+          planned = rlPlanLinkPath(ra, rb, obs, soft, lb);
+          linkPathCache.set(lkey, planned);
+          for (const p of planned.pts) {
+            const r = rlRect(p.x - 5, p.y - 5, 10, 10);
+            if (near(r, 6)) linkSoftRects.push(r);
+          }
+        }
+        const cls = ["mindmap-link", (ra.done && rb.done) ? "done" : ""].filter(Boolean).join(" ");
+        parts.push(`<path class="${cls}" d="${planned.d}" />`);
+        // 命中区：同路径、加宽透明、可接收右键（svg 本身仍 pointer-events:none）
+        parts.push(`<path class="mindmap-link-hit" data-link-a="${escapeHtml(l.a)}" data-link-b="${escapeHtml(l.b)}" d="${planned.d}" />`);
+      }
+      svg.innerHTML = parts.join("");
     }
 
     /* ==== ROUTE-LIB-START ====
@@ -1595,13 +1748,20 @@
         c2.x.toFixed(1) + " " + c2.y.toFixed(1) + ", " + q.x.toFixed(1) + " " + q.y.toFixed(1);
       return { d: d, pts: rlSampleCubic(p, c1, c2, q, 24) };
     }
-    // A* 栅格搜索：返回避开障碍的折线（端点为精确接驳点），失败返回 null
+    // A* 栅格搜索：返回避开障碍的折线（端点为精确接驳点），失败返回 null。
+    // 轻量化硬约束（避免大树卡死主线程）：
+    //   1) 栅格总格数超过 RL_MAX_CELLS 直接放弃（返回 null → 走圆滑曲线兜底）；
+    //   2) 扩展步数不超过 RL_MAX_STEPS；
+    //   3) open 表用二叉堆，不再每步 sort 整个数组。
+    const RL_MAX_CELLS = 20000; // 约 140×140 格
+    const RL_MAX_STEPS = 6000;
     function rlAStar(a, b, obstacles, bounds) {
       const cell = RL_CELL;
       const ox = bounds.x1, oy = bounds.y1;
       const cols = Math.max(2, Math.ceil((bounds.x2 - bounds.x1) / cell) + 1);
       const rows = Math.max(2, Math.ceil((bounds.y2 - bounds.y1) / cell) + 1);
       const N = cols * rows;
+      if (N > RL_MAX_CELLS) return null; // 栅格过大：直接回退轻量曲线
       const blocked = new Uint8Array(N);
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -1626,13 +1786,42 @@
         return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
       };
       g[start] = 0;
-      const open = [[hCost(sr, sc), 0, start]];
+      // 二叉堆（按 f 比较，同 f 按入堆序号）：替代原来「每步 sort 整个 open 数组」
+      const heap = [];
+      const hPush = item => {
+        heap.push(item);
+        let i = heap.length - 1;
+        while (i > 0) {
+          const p = (i - 1) >> 1;
+          if (heap[p][0] <= heap[i][0]) break;
+          const t = heap[p]; heap[p] = heap[i]; heap[i] = t;
+          i = p;
+        }
+      };
+      const hPop = () => {
+        const top = heap[0], last = heap.pop();
+        if (heap.length) {
+          heap[0] = last;
+          let i = 0;
+          for (;;) {
+            const l = 2 * i + 1, r = l + 1;
+            let m = i;
+            if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+            if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+            if (m === i) break;
+            const t = heap[m]; heap[m] = heap[i]; heap[i] = t;
+            i = m;
+          }
+        }
+        return top;
+      };
+      hPush([hCost(sr, sc), 0, start]);
+      let tie = 0;
       const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
         [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
       let found = false, guard = 0;
-      while (open.length && guard++ < 400000) {
-        open.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
-        const id = open.shift()[2];
+      while (heap.length && guard++ < RL_MAX_STEPS) {
+        const id = hPop()[2];
         if (closed[id]) continue;
         closed[id] = 1;
         if (id === goal) { found = true; break; }
@@ -1647,7 +1836,7 @@
           const ng = g[id] + dir[2];
           if (ng < g[nid]) {
             g[nid] = ng; came[nid] = id;
-            open.push([ng + hCost(nr, nc), guard, nid]);
+            hPush([ng + hCost(nr, nc), ++tie, nid]);
           }
         }
       }
@@ -1724,9 +1913,12 @@
       const ma = { x: pa.x + ex * 0.45 * pa.nx, y: pa.y + ex * 0.45 * pa.ny };
       const mb = { x: pb.x + ex * 0.45 * pb.nx, y: pb.y + ex * 0.45 * pb.ny };
       const trySets = soft.length ? [hard.concat(soft), hard] : [hard];
+      // 障碍过多时不再尝试 A*（小范围局部障碍本来就很少；这是大树下的保险丝）
+      const allowAStar = obs => obs.length <= 160;
       for (const obs of trySets) {
         const direct = rlTwoPointCurve(pa, pb);
         if (!direct.pts.some(p => obs.some(o => rlPointInRect(p.x, p.y, o)))) return direct;
+        if (!allowAStar(obs)) continue;
         const poly = rlAStar(ea, eb, obs, bounds);
         if (poly) return rlSmoothPath([pa, ma].concat(poly, [mb, pb]));
       }
@@ -1742,38 +1934,44 @@
       const box = document.getElementById("catTree");
       const root = buildMindData();
 
-      const ROW_H = 56;
-      const PAD_Y = 28;
-      const LEVEL_GAP = 250;
-      const PAD_X = 24;
       let maxDepth = 0;
 
+      // 紧凑布局：整棵树仍全部展开（每个节点都算出世界坐标），只是行高收紧——
+      // 文件/类/函数节点 ROW_H_STD（40），深度>=3 的参数/调用点叶子 ROW_H_PARAM（22），
+      // 说明文字照常参与第二遍实测增高（说明不与下一块重叠），无说明的叶子不再留大空白
+      function baseRowH(node) {
+        return (!node.children.length && node.depth >= 3) ? ROW_H_PARAM : ROW_H_STD;
+      }
       function measureLeaves(node) {
         if (node.depth > maxDepth) maxDepth = node.depth;
-        if (!node.children.length) { node.span = 1; return 1; }
-        node.span = node.children.reduce((sum, ch) => sum + measureLeaves(ch), 0);
-        return node.span;
+        if (!node.children.length) { node.spanPx = baseRowH(node); return node.spanPx; }
+        node.spanPx = node.children.reduce((sum, ch) => sum + measureLeaves(ch), 0);
+        return node.spanPx;
       }
       measureLeaves(root);
 
       const allNodes = [];
       const edges = [];
-      function layout(node, yStart) {
-        const h = node.span * ROW_H;
-        node.y = yStart + h / 2;
-        node.x = PAD_X + node.depth * LEVEL_GAP;
+      (function layout(node, yStart) {
+        node.y = yStart + node.spanPx / 2;
+        node.x = PAD_X_TREE + node.depth * LEVEL_GAP;
         allNodes.push(node);
         let curY = yStart;
         for (const ch of node.children) {
           layout(ch, curY);
-          edges.push({ from: node, to: ch });
-          curY += ch.span * ROW_H;
+          edges.push({ from: node, to: ch, d: "" });
+          curY += ch.spanPx;
         }
-      }
-      layout(root, PAD_Y);
+      })(root, PAD_Y_TREE);
 
-      const totalH = Math.max(360, root.span * ROW_H + PAD_Y * 2);
-      const totalW = Math.max(920, PAD_X * 2 + (maxDepth + 1) * LEVEL_GAP + 60);
+      const totalH = Math.max(360, root.spanPx + PAD_Y_TREE * 2);
+      const totalW = Math.max(920, PAD_X_TREE * 2 + (maxDepth + 1) * LEVEL_GAP + 60);
+
+      logicalW = totalW;
+      logicalH = totalH;
+      linkPathCache.clear();
+      linkSoftRects = [];
+      lastViewKey = "";
 
       box.style.width = totalW + "px";
       box.style.height = totalH + "px";
@@ -1784,6 +1982,7 @@
                data-nid="${n.nid}"
                data-depth="${n.depth}"
                data-ntype="${n.ntype}"
+               data-leaf="${n.leafKind || ""}"
                data-ref="${escapeHtml(n.refId)}"
                draggable="${n.draggable ? "true" : "false"}"
                style="left:${n.x}px; top:${n.y}px;">
@@ -1827,26 +2026,32 @@
         if (logoWrap.children.length) el.appendChild(logoWrap);
       }
 
-      applyPan();
+      // 切目录 / 首次打开：先用第一遍布局的粗略高度预 fit 一帧，
+      // 避免「1:1 顶对齐」那一帧把巨树顶端整个画出来
+      if (pendingAutoFit) applyFitView();
+      else applyPan();
 
       requestAnimationFrame(() => {
         const svg = document.getElementById("mindSvg");
         if (!svg) return;
         // 说明小字换行后按实际高度重排垂直间距：
         // 先量每块（按钮 + 说明 + 完成时间）的实际占位，再按叶子实际行高重新堆叠，
-        // 避免多行说明与下一块重叠、挡住连线（ROW_H=56 只是单行说明时的下限）
+        // 避免多行说明与下一块重叠、挡住连线；
+        // 行高下限按节点类型区分：参数叶子 ROW_H_PARAM，其余 ROW_H_STD
         const elByNid = new Map();
         box.querySelectorAll(".mm-node").forEach(el => elByNid.set(el.dataset.nid, el));
         for (const n of allNodes) {
           const el = elByNid.get(n.nid);
           const btn = el && el.querySelector(".node-btn");
-          if (!btn) { n.rowH = ROW_H; continue; }
+          const floor = baseRowH(n);
+          if (!btn) { n.rowH = floor; continue; }
+          const param = n.leafKind === "param";
           const noteEl = btn.querySelector(".node-note");
           const timeEl = btn.querySelector(".node-time");
-          let extra = 8; // 基础行间隙
-          if (timeEl) extra += 13;
-          if (noteEl) extra += noteEl.offsetHeight + (timeEl ? 10 : 2);
-          n.rowH = Math.max(ROW_H, btn.offsetHeight + extra);
+          let extra = param ? 2 : 8; // 基础行间隙：参数叶子排得更紧
+          if (timeEl) extra += param ? 11 : 13;
+          if (noteEl) extra += noteEl.offsetHeight + (param ? 2 : (timeEl ? 10 : 2));
+          n.rowH = Math.max(floor, btn.offsetHeight + extra);
         }
         (function stackY(node, yStart) {
           if (!node.children.length) {
@@ -1856,25 +2061,50 @@
           }
           let cy = yStart;
           for (const ch of node.children) { stackY(ch, cy); cy += ch.spanH; }
-          const span = cy - yStart;
-          node.spanH = Math.max(span, node.rowH);
+          const span = Math.max(cy - yStart, node.rowH);
+          node.spanH = span;
           node.y = yStart + span / 2;
-        })(root, PAD_Y);
-        const finalH = Math.max(360, root.spanH + PAD_Y * 2);
+        })(root, PAD_Y_TREE);
+        const finalH = Math.max(360, root.spanH + PAD_Y_TREE * 2);
         if (Math.abs(finalH - totalH) > 0.5) box.style.height = finalH + "px";
+        logicalH = finalH;
+        svg.setAttribute("viewBox", "0 0 " + logicalW + " " + finalH);
+        // 先统一写位置，再统一读尺寸，避免读写交替反复强制重排
         for (const n of allNodes) {
           const el = elByNid.get(n.nid);
           if (el) el.style.top = n.y + "px";
         }
-        // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带）
+
+        // 卡片几何（世界坐标）与父子分支 path 一次性缓存好；
+        // 之后平移/缩放的视野更新只做「筛选 + 拼 innerHTML」，不再重复测量
+        const cardRects = [];
+        const rectByNid = new Map();
+        for (const n of allNodes) {
+          const el = elByNid.get(n.nid);
+          const btn = el && el.querySelector(".node-btn");
+          if (!el || !btn) continue;
+          const r = {
+            ref: el.dataset.ref || "",
+            nid: n.nid,
+            x: el.offsetLeft,
+            y: el.offsetTop - btn.offsetHeight / 2,
+            w: btn.offsetWidth,
+            h: btn.offsetHeight,
+            done: btn.classList.contains("done")
+          };
+          cardRects.push(r);
+          rectByNid.set(n.nid, r);
+        }
+        // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带），
+        // 分支 path 用布局坐标直接计算，不为每条边做 DOM 测量
         const branchCorridors = [];
-        const paths = edges.map(({ from, to }) => {
-          const elFrom = box.querySelector(`[data-nid="${from.nid}"] .node-btn`);
-          const elTo = box.querySelector(`[data-nid="${to.nid}"] .node-btn`);
-          if (!elFrom || !elTo) return "";
-          const x1 = from.x + elFrom.offsetWidth - 2;
+        for (const e of edges) {
+          const { from, to } = e;
+          const rf = rectByNid.get(from.nid), rt = rectByNid.get(to.nid);
+          if (!rf || !rt) continue;
+          const x1 = rf.x + rf.w - 2;
           const y1 = from.y;
-          const x2 = to.x + 2;
+          const x2 = rt.x + 2;
           const y2 = to.y;
 
           branchCorridors.push(rlRect(
@@ -1887,54 +2117,28 @@
           const w2 = BRANCH_HALF_W * 0.9;
           // 水平段统一且尽量短：父节点右边先伸出固定短水平段，再弯曲接向子节点，
           // 不再按 dx 的 0.52 / 0.45 比例把控制点拉远
-          const dx = x2 - x1;
-          const stem = Math.max(10, Math.min(BRANCH_STEM, dx * 0.5));
+          const stem = Math.max(10, Math.min(BRANCH_STEM, (x2 - x1) * 0.5));
           const cx1 = x1 + stem;
           const cx2 = x2 - stem;
 
-          const d = [
+          e.d = [
             `M ${x1} ${y1 - w1}`,
             `C ${cx1} ${y1 - w1}, ${cx2} ${y2 - w2}, ${x2} ${y2 - w2}`,
             `L ${x2} ${y2 + w2}`,
             `C ${cx2} ${y2 + w2}, ${cx1} ${y1 + w1}, ${x1} ${y1 + w1}`,
             `Z`
           ].join(" ");
-
-          const color = to.done ? DONE_HEX : TODO_HEX;
-          return `<path class="mindmap-branch" d="${d}" fill="${color}" />`;
-        }).join("");
-
-        // 任务连线：每次渲染收集当前卡片几何（box 本地坐标，与分支一致，缩放仍正确），
-        // 在卡片外缘接驳、绕开其他卡片与分支走廊，重新规划有机虚线曲线
-        const cardRects = [];
-        box.querySelectorAll(".mm-node").forEach(el => {
-          const btn = el.querySelector(".node-btn");
-          if (!btn) return;
-          cardRects.push({
-            ref: el.dataset.ref || "",
-            x: el.offsetLeft,
-            y: el.offsetTop - btn.offsetHeight / 2,
-            w: btn.offsetWidth,
-            h: btn.offsetHeight,
-            done: btn.classList.contains("done")
-          });
-        });
-        const linkBounds = { x1: -80, y1: -80, x2: totalW + 80, y2: finalH + 80 };
-        const linkOut = [];
-        const linkSoft = []; // 已画连线采样成小矩形，让后续连线互相错开
-        for (const l of state.links) {
-          const ra = cardRects.find(r => r.ref === l.a);
-          const rb = cardRects.find(r => r.ref === l.b);
-          if (!ra || !rb) continue;
-          const cls = ["mindmap-link", (ra.done && rb.done) ? "done" : ""].filter(Boolean).join(" ");
-          const planned = rlPlanLinkPath(ra, rb, cardRects, branchCorridors.concat(linkSoft), linkBounds);
-          linkOut.push(`<path class="${cls}" d="${planned.d}" />`);
-          // 命中区：同路径、加宽透明、可接收右键（svg 本身仍 pointer-events:none）
-          linkOut.push(`<path class="mindmap-link-hit" data-link-a="${escapeHtml(l.a)}" data-link-b="${escapeHtml(l.b)}" d="${planned.d}" />`);
-          for (const p of planned.pts) linkSoft.push(rlRect(p.x - 5, p.y - 5, 10, 10));
         }
 
-        svg.innerHTML = paths + linkOut.join("");
+        layoutCache = {
+          nodes: allNodes, edges, cardRects, corridors: branchCorridors, byNid: elByNid
+        };
+        updateDynamicZoomMin();
+        if (pendingAutoFit) {
+          pendingAutoFit = false;
+          applyFitView(); // 说明实测高度出来后再精确 fit 一次
+        }
+        updateViewport(true);
       });
     }
 
@@ -2439,7 +2643,8 @@
       const stage = document.getElementById("mindmapStage");
       if (!stage) return;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale * factor));
+      // 大树（如 NeurCross）的 zoomMin 已按 fit 动态下探，保证总能缩到整棵树进视野
+      const next = Math.min(ZOOM_MAX, Math.max(zoomMin, scale * factor));
       if (next === scale) return;
       const rect = stage.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -2577,7 +2782,11 @@
     function applySidebarOpen() {
       catalogSidebar.classList.toggle("collapsed", !state.sidebarOpen);
       catalogRailBtn.hidden = !!state.sidebarOpen;
+      scheduleViewportUpdate(); // 侧栏收起/展开改变舞台宽度，刷新可见集
     }
+
+    // 窗口尺寸变化：视野矩形变了，补画/回收可见节点
+    window.addEventListener("resize", scheduleViewportUpdate);
 
     function switchCatalog(id) {
       const cat = state.catalogs.find(c => c.id === id);
@@ -2590,9 +2799,10 @@
       closeLinkMenu();
       if (linkMode) exitLinkMode();
       state.currentCatalogId = id;
-      // 平移/缩放按目录独立：切换时重置，不串目录数据
-      pan = { x: 0, y: 0 };
-      scale = 1;
+      // 切目录时自动 fit：大树（如 NeurCross 函数级完整树）直接缩到整棵展开的树
+      // 都进视野，绝不再停在 1:1 顶端把巨树整个画出来；小树维持接近 1:1 并居中。
+      // 不再用 pan=0/scale=1 顶对齐（那是卡死的根源），平移/缩放仍按目录独立重置。
+      pendingAutoFit = true;
       save();
       render();
     }
@@ -2619,8 +2829,7 @@
       };
       state.catalogs.push(cat);
       state.currentCatalogId = cat.id;
-      pan = { x: 0, y: 0 };
-      scale = 1;
+      pendingAutoFit = true; // 新目录是单节点小树：接近 1:1 居中即可
       save();
       render();
       // 顺手打开侧栏内联改名，方便立刻改目录名
@@ -2643,8 +2852,7 @@
       );
       if (state.currentCatalogId === id) {
         state.currentCatalogId = state.catalogs[0].id; // 自动切到剩下的目录
-        pan = { x: 0, y: 0 };
-        scale = 1;
+        pendingAutoFit = true; // 切换后的目录也按其大小自动 fit
       }
       save();
       render();
@@ -2811,6 +3019,9 @@
     });
 
     applySidebarOpen();
+    // 首次打开：若当前目录是大树（例如上次停在 NeurCross），自动缩放到整棵树可见，
+    // 不再从顶端 1:1 绘制导致长时间无响应
+    pendingAutoFit = true;
     render();
   </script>
 </body>
