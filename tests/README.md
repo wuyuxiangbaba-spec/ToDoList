@@ -1,35 +1,39 @@
 # 测试工装
 
-对任意版本的 `index.html` 可零改动重跑的验收/回归工具（Node ≥ 22，原生 WebSocket 走 CDP；静态服务与 headless Edge 自起自清，仅按 PID 终止）。
+对任意版本的 `index.html` 可零改动重跑的验收/自检工具（Node ≥ 22，原生 WebSocket 走 CDP；静态服务与 headless Edge 自起自清，只按 PID 终止）。
 
-## 一键验收矩阵（A1–A8）
+## 快速自检（无浏览器）
 
 ```powershell
-node tests\acceptance-run.mjs --file <index.html绝对路径> --out <结果目录> [--mobile]
+node tests\catalog-selfcheck.mjs            # 抽取 index.html 纯函数段：默认树恢复/dflt迁移/存量保护/NeurCross 播种
 ```
 
-覆盖：默认树加载、50 节点+30 字长标题无重叠/无反向曲线/无竖脊、打卡后虚线端点贴合（≤1.5px）、环形 JSON 不白屏、删节点无悬空连线、390×844 移动端（原生弹窗拦截、横向滚动）、缩放 0.3/1/3 回归、连续打卡性能。
+## Phase-C 验收矩阵（C1–C7，浏览器）
+
+```powershell
+node tests\run-phase-c.mjs --file index.html --out out-phase-c
+```
+
+覆盖：C1 无缓存首开=23 nmw 个人树；C2 全 dflt- 目录自动迁移回个人树；C3 改过的 nmw 树严禁覆盖；C4 折叠已删（存量子节点仍可见）；C5 日历已删（daily 存量按普通节点勾选落 done）；C6 根节点 A/B 形态（NeurCross/新建目录单层、默认目录根=目录名、改名同步、右键/拖拽/fit/搜索）；C7 回归护栏（虚线贴合≤1.5px、撤销、搜索、缩放 fit、暗黑、多目录、NeurCross 494 节点、环形 JSON 不白屏）。退出码 0=全过。
+
+## Phase-B 通用回归（A1–A8，浏览器）
+
+```powershell
+node tests\acceptance-run.mjs --file index.html --out out-acceptance [--mobile]
+```
+
+布局无重叠/无反向曲线/无竖脊、虚线贴合、环数据、删节点无悬空连线、移动视口、缩放回归、性能记数。
 
 ## 单项工具
 
 | 脚本 | 用途 |
 |---|---|
-| shot.mjs / mob-shot.mjs | CDP 加载器（桌面 1440×900 / 移动 390×844）：`node shot.mjs <url> [seed.js] [shot.png] [measure.js]` |
-| seed-basic.js / seed-mixed.js | 注入测试树（含连线/混合完成态），seed 后自动 reload |
-| smoke-seed.js / smoke2-seed.js | 交叉功能冒烟种子（折叠×每日打卡×撤销） |
+| shot.mjs / mob-shot.mjs | CDP 加载器（1440×900 / 390×844）：`node tests\shot.mjs <url> [seed.js] [shot.png] [measure.js]` |
+| seed-basic.js / seed-mixed.js | 注入测试树（含连线/混合完成态） |
+| smoke-seed.js / smoke-measure.js | 交叉功能冒烟（六轨元素在位性 + 根名 + 虚线 + 撤销 + 主题 + 搜索 + 缩放） |
 | measure-branch.js | 分支几何断言（path 数=边数、无竖脊、逐边匹配） |
 | measure-toggle.js | 打卡前后虚线端点 vs 卡片接驳边距离 |
-| smoke-measure.js / smoke2-measure.js | 六轨功能存在性 + 日历打卡链路 + 撤销回滚 |
 | mob-measure.js | 移动视口指标（innerWidth/clientWidth/滚动条/抽屉） |
+| seeds/ | Phase-C 矩阵种子（nmw 23 节点 / dflt 24 节点 / 各场景目录） |
 
-典型用法：
-
-```powershell
-python -m http.server 8791 --bind 127.0.0.1 --directory <仓库根>
-$edge = Start-Process 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' -ArgumentList '--headless=new','--disable-gpu','--remote-debugging-port=9411','--user-data-dir=<临时目录>','about:blank' -PassThru
-$env:CDP_PORT='9411'
-node tests\shot.mjs http://127.0.0.1:8791/index.html tests\seed-basic.js out.png tests\measure-branch.js
-Stop-Process -Id $edge.Id   # 只按 PID 清理
-```
-
-历史验收结果见 `docs/phase-b/acceptance/`（基线与集成版报告+截图）。
+历史验收结果：`docs/phase-b/acceptance/`（Phase-B 基线与集成版）。

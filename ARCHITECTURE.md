@@ -53,20 +53,27 @@
 - 完成态挂在叶子；分支完成态由子树派生（加载时清分支残留 done）。
 - 兼容链：`nodeChecks[date][id]` → 单树 nodes/links → 多目录 catalogs（`resolveCatalogState` 逐级迁移，用户编辑永不回退）。
 
-## 3. Phase B 商用化改造（已落地，2026-11-20）
+## 3. Phase B 商用化改造（2026-11-20 落地；Phase-C 于同日按用户要求回退部分轨道）
 
 保持单文件 + 无构建的部署约束，六轨并行实现并经独立验收工装回归（A1–A8 桌面 7/8 PASS，A6 移动端弹窗清零、无可见横向滚动；工装对画布 scrollWidth 的断言为 overflow:hidden 裁剪伪影，实测 innerWidth=clientWidth=390）：
 
 | 轨道 | 内容 | 数据模型变化 | 状态 |
 |---|---|---|---|
 | B-1 撤销/重做 | ≥30 步历史栈，Ctrl+Z / Ctrl+Shift+Z，时间戳原样恢复（防伪验证：篡改时间源后重做仍恢复原值） | 无（内存态） | ✅ |
-| B-2 日历打卡 | 节点 `kind: "once"|"daily"`；`dailyChecks[dateStr][nodeId]` 按本地时区按天记录；日历热力/完成度、Streak、补签；打卡可撤销 | 新增可选字段 + catalogs 级新 map | ✅ |
+| B-2 日历打卡 | 已于 Phase-C 移除：日历面板 / daily kind / dailyChecks 全部删除，存量字段安静兼容 | 无 | ❌ |
 | B-3 移动端 | 自定义 Modal/Toast 取代 confirm/alert（全文 0 处原生调用）；长按 Action Sheet；双指缩放/单指平移；<760px 侧栏抽屉 | 无 | ✅ |
-| B-4 画布控件 | 缩放工具条 + 一键 fit + 全部展开；节点折叠（徽章 n/m，持久化）；搜索高亮 + 只看未完成；长文本防重叠修复（基线 6 对→0） | 节点可选 `collapsed` | ✅ |
+| B-4 画布控件 | 缩放工具条 + 一键 fit（节点折叠已于 Phase-C 移除，树恒全展开）；搜索高亮 + 只看未完成；长文本防重叠修复（基线 6 对→0） | 无 | ✅ |
 | B-5 PWA/主题/合规 | manifest + SW 离线（真实注册验证 activated）；中性默认模板（去第三方商标，grep 0 命中）；暗黑模式；本地时区 | 独立 key `signin-tracker-theme` | ✅ |
 | B-6 验收工装 | run.mjs：重叠/反向曲线/虚线贴合/环数据/移动视口/原生弹窗拦截 等矩阵 | 无 | ✅ |
 
 所有新字段可选、默认值等价旧行为；存量数据无损加载是硬约束。
+
+## 3.5 Phase-C 调整（2026-11-21）
+
+1. **个人默认树恢复**：`DEFAULT_NODES` 从 3e873f2 逐字节恢复（23 个 nmw 节点）；`resolveCatalogState` 新增迁移——目录节点全部 `dflt-` 前缀 => 整树换回个人树（保留目录 id/name，清 links/linkDone），含任何非 dflt- 节点或空目录 => 原样保留。
+2. **折叠功能删除**：树恒全展开；`collapsed` 字段加载即丢弃。
+3. **打卡日历删除**：`dailyChecks`/`calendarOpen`/`kind:"daily"` 存量数据安静兼容，daily 节点按普通节点显示勾选。
+4. **根节点改造**：不再有「全部项目」虚拟层。情况 A（单顶层且名=目录名，如 NeurCross/新建目录）该真实节点即根；情况 B（多顶层或异名，如默认目录）虚拟根名=当前目录名，目录改名同步。根上隐藏改名/删除（A 情况 deleteNode 防御拒绝），拖到根=升为一级。
 
 ## 4. 后续路线（本轮不做）
 

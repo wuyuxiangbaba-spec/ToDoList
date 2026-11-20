@@ -2,28 +2,23 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(300);
   const res = { elems: {}, flow: {} };
-  for (const id of ["undoBtn","redoBtn","themeToggleBtn","zoomInBtn","zoomOutBtn","zoomLabelBtn","fitViewBtn","expandAllBtn","searchInput","dailyRail","calGrid"]) {
+  for (const id of ["undoBtn","redoBtn","themeToggleBtn","zoomInBtn","zoomOutBtn","zoomLabelBtn","fitViewBtn","searchInput"]) {
     const el = document.getElementById(id);
     res.elems[id] = !!el;
   }
-  res.elems.dailyAside = !!document.querySelector(".daily-aside:not(.collapsed)");
-  // collapsed branch a -> children hidden, badge shown
+  // Phase-C：折叠与日历已删除，断言其不存在
+  res.elems.expandAllBtn = !document.getElementById("expandAllBtn");
+  res.elems.dailyRailGone = !document.getElementById("dailyRail");
+  res.elems.dailyAsideGone = !document.querySelector(".daily-aside");
+  // Phase-C：树恒全展开（无折叠隐藏）；根节点名称 = 目录名（seed 目录名为「测试」）
   res.flow.nodeCount = document.querySelectorAll(".mm-node").length;
-  const badge = document.querySelector(".node-fold-badge");
-  res.flow.collapseBadge = badge ? badge.textContent : null;
-  // calendar cells with fraction for today
-  const todayIso = (() => { const t=new Date(); return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0"); })();
-  const cellToday = document.querySelector('.cal-cell[data-date="' + todayIso + '"]');
-  res.flow.todayCellFrac = cellToday ? (cellToday.querySelector(".cal-frac")||{}).textContent : null;
-  // streak + rate text
-  const stats = [...document.querySelectorAll(".daily-stat")].map(e => e.textContent.trim().replace(/\s+/g," "));
-  res.flow.dailyStats = stats;
+  const foldGone = !document.querySelector(".node-fold, .node-fold-badge");
+  res.flow.foldUiGone = foldGone;
+  const root = document.querySelector('[data-ntype="root"] .node-name');
+  res.flow.rootName = root ? root.textContent : null;
   // link still drawn and attached
   const hits = [...document.querySelectorAll(".mindmap-link-hit")].map(p => ({a:p.dataset.linkA,b:p.dataset.linkB}));
   res.flow.links = hits;
-  // daily node visual: find node a1 badge
-  const a1 = document.querySelector('.mm-node[data-ref="a1"]');
-  res.flow.dailyBadge = a1 ? (a1.querySelector(".daily-badge")||{}).textContent : null;
   // theme toggle
   const tb = document.getElementById("themeToggleBtn");
   const before = document.documentElement.getAttribute("data-theme") || "light";
