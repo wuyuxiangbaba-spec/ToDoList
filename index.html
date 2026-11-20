@@ -1926,9 +1926,38 @@
     }
     /* ==== ROUTE-LIB-END ==== */
 
-    // 分支带统一视觉参数：固定半宽（各层一样粗）+ 固定短水平段（不随距离变长）
-    const BRANCH_HALF_W = 2.4;
+    // 分支带统一视觉参数：父端粗、子端细（约 2:1 收束）+ 固定短水平段（不随距离变长）
+    // 半宽沿曲线法线扩出，不随线长/走向变细；子端全宽仍有 ~4px，不会成发丝
+    const BRANCH_HALF_W_PARENT = 3.9;
+    const BRANCH_HALF_W_CHILD = 2.0;
     const BRANCH_STEM = 38;
+    const BRANCH_SAMPLES = 40;
+
+    // 父子实线分支色带：中心线仍是 (p0 → 短水平 stem 控制点 → 三次贝塞尔 → p1)，
+    // 但两侧不再用 y±w 的屏幕竖直偏移，而是沿贝塞尔本地切线的单位法线 N 扩出半宽，
+    // 半宽 w(t) 从父端 wParent 平滑收到子端 wChild。这样接近水平的短线与竖向跨度大的
+    // 长弯线在相同相对位置 t 处视觉宽度一致（都 ≈ 2*w(t)），不会「线越长就越细」。
+    // 法线朝向全程一致（本路由 B'(t) 的 x 分量恒正，N = normalize(-ty, tx) 不翻转），
+    // 端点切线水平，端帽就是法线方向的竖直线。零切线时沿用上一个法线兜底。
+    function cubicRibbon(p0, c1, c2, p1, wParent, wChild) {
+      const top = [];
+      const bot = [];
+      let nx = 0, ny = 1;
+      for (let i = 0; i <= BRANCH_SAMPLES; i++) {
+        const t = i / BRANCH_SAMPLES;
+        const mt = 1 - t;
+        const x = mt * mt * mt * p0.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * p1.x;
+        const y = mt * mt * mt * p0.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * p1.y;
+        const dx = 3 * mt * mt * (c1.x - p0.x) + 6 * mt * t * (c2.x - c1.x) + 3 * t * t * (p1.x - c2.x);
+        const dy = 3 * mt * mt * (c1.y - p0.y) + 6 * mt * t * (c2.y - c1.y) + 3 * t * t * (p1.y - c2.y);
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-6) { nx = -dy / len; ny = dx / len; }
+        const w = wParent + (wChild - wParent) * t;
+        top.push(`${x + nx * w} ${y + ny * w}`);
+        bot.push(`${x - nx * w} ${y - ny * w}`);
+      }
+      return `M ${top.join(" L ")} L ${bot.reverse().join(" L ")} Z`;
+    }
 
     function renderTree() {
       const box = document.getElementById("catTree");
@@ -2112,22 +2141,18 @@
             Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
           ));
 
-          // 所有父子分支视觉粗细统一：固定半宽，不再按深度递减（仅极小固定收束）
-          const w1 = BRANCH_HALF_W;
-          const w2 = BRANCH_HALF_W * 0.9;
+          // 分支带用切线法线偏移（cubicRibbon）：父端半宽 BRANCH_HALF_W_PARENT、
+          // 子端半宽 BRANCH_HALF_W_CHILD，沿 t 平滑收束，长短/走向不同粗细一致
           // 水平段统一且尽量短：父节点右边先伸出固定短水平段，再弯曲接向子节点，
           // 不再按 dx 的 0.52 / 0.45 比例把控制点拉远
           const stem = Math.max(10, Math.min(BRANCH_STEM, (x2 - x1) * 0.5));
           const cx1 = x1 + stem;
           const cx2 = x2 - stem;
 
-          e.d = [
-            `M ${x1} ${y1 - w1}`,
-            `C ${cx1} ${y1 - w1}, ${cx2} ${y2 - w2}, ${x2} ${y2 - w2}`,
-            `L ${x2} ${y2 + w2}`,
-            `C ${cx2} ${y2 + w2}, ${cx1} ${y1 + w1}, ${x1} ${y1 + w1}`,
-            `Z`
-          ].join(" ");
+          e.d = cubicRibbon(
+            { x: x1, y: y1 }, { x: cx1, y: y1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
+            BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
+          );
         }
 
         layoutCache = {
