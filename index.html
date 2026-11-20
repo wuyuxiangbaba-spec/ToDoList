@@ -2065,17 +2065,29 @@
         };
       };
 
+      // 根分支按 A/B 两种情况构造（移除原先固定名称的虚拟根层，根名不再硬编码）：
+      // A：当前目录恰有一个 parentId:null 顶层节点且名称与目录名相同（NeurCross 预置、
+      //    createCatalog 新建目录的典型形态）——该真实节点直接作为第 0 层根分支渲染
+      //    （refId=其真实 id），不再出现「目录名 → 同名节点」两层；其子节点从深度 1
+      //    开始，节点本体不再作为普通节点重复出现在根的 children 里。
+      // B：多个顶层（如默认目录「昆仑数模」+「上海大学」），或单顶层但名字 ≠ 目录名——
+      //    最左根为虚拟节点，name 动态取 currentCatalog().name，其下渲染全部顶层节点。
+      // 完成态两种情况语义一致：rootDone/rootCompletedAt 都按全部顶层聚合，
+      // A 时唯一顶层的子树聚合结果与其相同。
+      const tops = childNodes(null);
+      const soloTop = (tops.length === 1 && tops[0].name === currentCatalog().name) ? tops[0] : null;
+      const rootName = soloTop ? soloTop.name : currentCatalog().name;
       const rDone = rootDone();
       return {
         nid: "n" + (++uid),
         depth: 0,
         done: rDone,
         ntype: "root",
-        refId: "",
+        refId: soloTop ? soloTop.id : "",
         draggable: false,
-        searchText: "全部项目",
-        html: nodeBtnHtml({ id: "", name: "全部项目", done: rDone, completedAt: rootCompletedAt(), toggle: false, tip: "根节点：可拖入任意分支将其升为一级，右键可新增一级分支" }),
-        children: childNodes(null).map(k => buildNode(k, 1))
+        searchText: rootName.toLowerCase(),
+        html: nodeBtnHtml({ id: soloTop ? soloTop.id : "", name: rootName, done: rDone, completedAt: rootCompletedAt(), note: soloTop ? (soloTop.note || "") : "", toggle: false, tip: "根节点：可拖入任意分支将其升为一级，右键可新增一级分支" }),
+        children: (soloTop ? childNodes(soloTop.id) : tops).map(k => buildNode(k, 1))
       };
     }
 
@@ -2587,7 +2599,9 @@
         b.style.width = dia + "px";
         b.style.height = dia + "px";
       }
-      for (const el of box.querySelectorAll('.mm-node[data-ntype="node"]')) {
+      // 情况 A 的根带真实 refId，历史上插到该顶层节点上的目录徽标仍要渲染
+      // （情况 B 虚拟根 refId="" 不会有 inserts 匹配，不受影响）
+      for (const el of box.querySelectorAll(".mm-node")) {
         const ref = el.dataset.ref;
         const inserts = state.catalogInserts.filter(
           ins => ins.catalog === state.currentCatalogId && ins.node === ref
@@ -2887,7 +2901,11 @@
     let suppressNextTreeClick = false;
 
     function findNodeEl(refId) {
-      if (!refId) return catTree.querySelector('.mm-node[data-ntype="root"]');
+      const rootEl = catTree.querySelector('.mm-node[data-ntype="root"]');
+      if (!refId) return rootEl;
+      // 情况 A：根即唯一同名顶层真实节点（data-ntype=root 但 data-ref 为其真实 id），
+      // 按该 refId 查找时必须命中根元素，否则根上「+ 分支」等内联编辑定位失败
+      if (rootEl && rootEl.dataset.ref === refId) return rootEl;
       const nodes = catTree.querySelectorAll('.mm-node[data-ntype="node"]');
       for (const el of nodes) {
         if (el.dataset.ref === refId) return el;
@@ -3185,7 +3203,8 @@
         actions.push({ act: "link", label: "连线" });
       }
       if (hasLinks) actions.push({ act: "unlink", label: "取消连线" });
-      const inserts = (!isRoot && refId)
+      // 情况 A 根带真实 refId：其上的目录徽标也要能长按移除（与桌面右键一致）
+      const inserts = refId
         ? state.catalogInserts.filter(ins =>
             ins.catalog === state.currentCatalogId && ins.node === refId &&
             (!logoTarget || ins.target === logoTarget))
@@ -3294,7 +3313,9 @@
       ctxMenu.querySelector('[data-act="link"]').hidden = isRoot;
       ctxMenu.querySelector('[data-act="unlink"]').hidden = !hasLinks;
       const unpinBtn = ctxMenu.querySelector('[data-act="unpin"]');
-      const inserts = (!isRoot && ctxTarget.refId)
+      // 情况 A 根带真实 refId：历史上插到该顶层节点上的目录徽标要能右键移除
+      // （情况 B 根 refId="" 不会有 inserts 匹配，unpin 依旧隐藏）
+      const inserts = ctxTarget.refId
         ? state.catalogInserts.filter(ins =>
             ins.catalog === state.currentCatalogId && ins.node === ctxTarget.refId &&
             (!ctxTarget.unpinTarget || ins.target === ctxTarget.unpinTarget))
@@ -3454,9 +3475,23 @@
       input.focus();
     }
 
+    // 情况 A 判定：节点是当前目录唯一的 parentId:null 顶层，且名称与目录名相同
+    // （buildMindData 会把它直接渲染成第 0 层根分支，refId 即其真实 id）
+    function isSoloRootNode(node) {
+      if (!node || (node.parentId || null) !== null) return false;
+      const tops = childNodes(null);
+      return tops.length === 1 && tops[0].id === node.id && node.name === currentCatalog().name;
+    }
     function deleteNode(nodeId, skipConfirm) {
       const node = nodeById(nodeId);
       if (!node) return;
+      // 情况 A 防御：目标是「唯一顶层且名=目录名」的节点（画布根本体）时拒绝删除，
+      // 防止整树变空白；提示走 Toast。正常 UI（菜单/快捷键/触屏）已隐藏根的删除入口，
+      // 这里兜底拦截其余可能的删除路径。
+      if (isSoloRootNode(node)) {
+        showToast("根分支不可删除（当前目录的唯一顶层）", "error");
+        return;
+      }
       const kids = childNodes(node.id);
       if (!skipConfirm) {
         const msg = kids.length
@@ -3765,7 +3800,7 @@
       // 与节点改挂载（dragId）互不干扰；用独立 dataTransfer 类型区分。
       if (!dragId && catalogDragId) {
         if (catalogDragId === state.currentCatalogId) return; // 不插到自己树上
-        const catTarget = e.target.closest('.mm-node[data-ntype="node"]');
+        const catTarget = catalogDropTarget(e.target);
         if (!catTarget) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "link";
@@ -3797,7 +3832,7 @@
     catTree.addEventListener("drop", e => {
       // 目录拖拽插入分支（先于节点改挂载处理；二者不会同时发生）
       if (!dragId && catalogDragId) {
-        const catTarget = e.target.closest('.mm-node[data-ntype="node"]');
+        const catTarget = catalogDropTarget(e.target);
         const nodeId = catTarget ? (catTarget.dataset.ref || "") : "";
         const dragCat = catalogDragId;
         catalogDragId = null;
@@ -3808,7 +3843,10 @@
       if (!dragId) return;
       const target = e.target.closest(".mm-node");
       if (!target) return;
-      const targetId = target.dataset.ref || null;
+      // 根（data-ntype=root）作为放置目标 = 升为一级分支：统一按 parentId=null 处理。
+      // 情况 A 的根 data-ref 是真实节点 id，绝不能把节点改挂到该 id 下
+      // （会造成挂在自身/祖先环、节点从树上消失）；情况 B 根 refId 本就为 ""。
+      const targetId = target.dataset.ntype === "root" ? null : (target.dataset.ref || null);
       if (targetId && (targetId === dragId || isDescendant(targetId, dragId))) return;
       const dragged = nodeById(dragId);
       if (!dragged) return;
@@ -3999,6 +4037,16 @@
 
     function clearCatDropMarks() {
       catTree.querySelectorAll(".cat-drop-over").forEach(el => el.classList.remove("cat-drop-over"));
+    }
+
+    // 目录徽标插入的落点：普通节点，或情况 A 的真实根（data-ntype=root 且 refId 非空）；
+    // 情况 B 的虚拟根（refId=""）不能作为插入目标（与其余根交互一致：不接受目录插入）
+    function catalogDropTarget(t) {
+      const el = t && t.closest ? t.closest(".mm-node") : null;
+      if (!el) return null;
+      if (el.dataset.ntype === "node") return el;
+      if (el.dataset.ntype === "root" && el.dataset.ref) return el;
+      return null;
     }
 
     // 把目录 catId 插入到当前目录树的 nodeId 分支上（出现 logo）
