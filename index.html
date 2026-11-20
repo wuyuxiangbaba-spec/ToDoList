@@ -241,6 +241,19 @@
       letter-spacing: 0;
     }
 
+    .node-note {
+      position: absolute;
+      left: 14px;
+      top: calc(100% + 2px);
+      font-size: 10px;
+      line-height: 1;
+      color: var(--muted);
+      pointer-events: none;
+      white-space: nowrap;
+      letter-spacing: 0;
+    }
+    .node-btn.done .node-note { top: calc(100% + 13px); }
+
     .mm-node:hover { z-index: 10; }
     .mm-node.editing { z-index: 20; }
 
@@ -534,7 +547,8 @@
           name: String(n.name || ""),
           parentId: n.parentId ? String(n.parentId) : null,
           done: !!n.done,
-          completedAt: n.completedAt || ""
+          completedAt: n.completedAt || "",
+          note: n.note ? String(n.note).slice(0, 160) : ""
         }));
         const finalNodes = finalizeNodes(nodes, data.nodeChecks);
         return {
@@ -567,7 +581,8 @@
           name: String(it.name || ""),
           parentId: it.categoryId ? String(it.categoryId) : null,
           done: false,
-          completedAt: ""
+          completedAt: "",
+          note: it.note ? String(it.note).slice(0, 160) : ""
         });
       }
 
@@ -755,6 +770,100 @@
       };
     }
 
+    // ---------- NeurCross 代码架构预置目录（纯函数） ----------
+    // 目录名固定为「NeurCross」：打开该目录后，树状图即 NeurCross 代码架构。
+    // 节点 id 统一前缀 nc_，与 DEFAULT_NODES（nmw…）不冲突。
+    const NEURCROSS_CATALOG_ID = "cat_neurcross_arch";
+    const NEURCROSS_CATALOG_NAME = "NeurCross";
+    const NEURCROSS_DEFAULT_NODES = [
+      { id: "nc_root", name: "NeurCross", parentId: null, done: false, completedAt: "",
+        note: "代码架构总览（父子分支=调用层级）" },
+      { id: "nc_train", name: "quad_mesh/train_quad_mesh.py", parentId: "nc_root", done: false, completedAt: "",
+        note: "训练主程序（入口）：cd quad_mesh && python train_quad_mesh.py" },
+      { id: "nc_args", name: "quad_mesh/quad_mesh_args.py", parentId: "nc_train", done: false, completedAt: "",
+        note: "命令行参数" },
+      { id: "nc_dataset", name: "quad_mesh/quad_mesh_dataset.py", parentId: "nc_train", done: false, completedAt: "",
+        note: "读三角网格、取面心/法向/局部标架、采样点" },
+      { id: "nc_models_init", name: "models/__init__.py", parentId: "nc_train", done: false, completedAt: "",
+        note: "导出 Network_predict_angle 和 MorseLoss_quad_mesh" },
+      { id: "nc_digs", name: "models/DiGS.py", parentId: "nc_models_init", done: false, completedAt: "",
+        note: "Network_predict_angle：SIREN 解码器 + UNet 预测转角 theta；旧 Network 类训练未用" },
+      { id: "nc_unet", name: "models/UNet.py", parentId: "nc_digs", done: false, completedAt: "",
+        note: "UNet_predict_angle：12 维特征预测一个角" },
+      { id: "nc_loss", name: "models/loss_quad_mesh.py", parentId: "nc_models_init", done: false, completedAt: "",
+        note: "MorseLoss_quad_mesh：SDF/离面/Eikonal/Morse，theta→alpha,beta 与邻面一致性" },
+      { id: "nc_encoder", name: "models/encoder.py", parentId: "nc_models_init", done: false, completedAt: "",
+        note: "点云编码器，latent_size=0，当前训练默认不启用（虚线连 DiGS.py）" },
+      { id: "nc_utils", name: "utils/utils.py", parentId: "nc_train", done: false, completedAt: "",
+        note: "种子、日志、求导、邻面旋转、保存交叉场；loss 亦调用（虚线）" },
+      { id: "nc_ocn", name: "models/ocn", parentId: "nc_root", done: false, completedAt: "",
+        note: "遗留，当前训练不用" },
+      { id: "nc_ocn_common", name: "common.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" },
+      { id: "nc_ocn_layers", name: "layers.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" },
+      { id: "nc_ocn_unet", name: "unet.py", parentId: "nc_ocn", done: false, completedAt: "",
+        note: "遗留 UNet，与 models/UNet.py 不是同一文件" },
+      { id: "nc_ocn_unet3d", name: "unet3d.py", parentId: "nc_ocn", done: false, completedAt: "", note: "" }
+    ];
+    // 右键虚线（无向边，normalizeLinks 会按 a<b 排序去重）：
+    // 1. DiGS.py ↔ encoder.py（编码器默认不启用）；2. loss_quad_mesh.py ↔ utils/utils.py（调用关系，不重复挂树）
+    const NEURCROSS_DEFAULT_LINKS = [
+      { a: "nc_digs", b: "nc_encoder" },
+      { a: "nc_loss", b: "nc_utils" }
+    ];
+
+    function cloneNeurCrossNodes() {
+      return NEURCROSS_DEFAULT_NODES.map(n => ({
+        id: n.id, name: n.name, parentId: n.parentId,
+        done: false, completedAt: "", note: n.note || ""
+      }));
+    }
+
+    // 判断已有 NeurCross 目录是否还是「不完整示例树 / 尚未画上架构」：
+    // 命中示例节点名（same_seed 等），或整棵树里既没有 train_quad_mesh.py 也没有 nc_ 前缀节点。
+    function isNeurCrossSampleTree(cat) {
+      const nodes = (cat && Array.isArray(cat.nodes)) ? cat.nodes : [];
+      const names = nodes.map(n => (n && n.name) || "");
+      if (names.some(nm => /same_seed|normalize_mesh_export|file_out/.test(nm))) return true;
+      if (names.some(nm => /train_quad_mesh\.py/.test(nm))) return false;
+      if (nodes.some(n => n && String(n.id).indexOf("nc_") === 0)) return false;
+      return true;
+    }
+
+    // 纯函数：确保 catalogs 里存在「NeurCross」目录并画上完整架构。
+    // - 查找：优先 name === "NeurCross"，其次稳定 id === cat_neurcross_arch；
+//   找到后保留其原有 id 和 name（不换随机 id，不动 currentCatalogId / 插入记录）。
+    // - 未找到：把预置目录 append 到末尾（不改 currentCatalogId）。
+    // - 已有但不完整（示例树 / 未画架构）：替换 nodes / links / linkDone 为完整架构预置数据。
+    // - 已是完整架构：原样返回，不覆盖 done / completedAt / 打卡。
+    function ensureNeurCrossCatalog(catalogs) {
+      if (!Array.isArray(catalogs)) return catalogs;
+      let cat = null;
+      for (const c of catalogs) {
+        if (c && c.name === NEURCROSS_CATALOG_NAME) { cat = c; break; }
+      }
+      if (!cat) {
+        for (const c of catalogs) {
+          if (c && c.id === NEURCROSS_CATALOG_ID) { cat = c; break; }
+        }
+      }
+      if (!cat) {
+        catalogs.push({
+          id: NEURCROSS_CATALOG_ID,
+          name: NEURCROSS_CATALOG_NAME,
+          nodes: cloneNeurCrossNodes(),
+          links: NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b })),
+          linkDone: {}
+        });
+        return catalogs;
+      }
+      if (isNeurCrossSampleTree(cat)) {
+        cat.nodes = cloneNeurCrossNodes();
+        cat.links = NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b }));
+        cat.linkDone = {};
+      }
+      return catalogs;
+    }
+
     // 纯函数：给定 localStorage 原始字符串，解析成多目录状态（便于测试注入）。
     // - 新格式（含非空 catalogs）：原样加载各目录，不打回默认树；
     // - 旧单树格式（nodes/links/linkDone，无 catalogs）：先走原有 resolveState
@@ -768,6 +877,7 @@
           if (data && Array.isArray(data.catalogs) && data.catalogs.length) {
             const catalogs = data.catalogs.map(normalizeCatalog).filter(Boolean);
             if (catalogs.length) {
+              ensureNeurCrossCatalog(catalogs);
               const currentCatalogId = catalogs.some(c => c.id === String(data.currentCatalogId))
                 ? String(data.currentCatalogId)
                 : catalogs[0].id;
@@ -789,7 +899,9 @@
         links: first.links,
         linkDone: first.linkDone
       };
-      return Object.assign(base, { catalogs: [cat], currentCatalogId: cat.id });
+      const catalogs = [cat];
+      ensureNeurCrossCatalog(catalogs);
+      return Object.assign(base, { catalogs: catalogs, currentCatalogId: cat.id });
     }
     /* ==== CATALOG-PURE-END ==== */
 
@@ -930,11 +1042,15 @@
       const time = opts.done && opts.completedAt
         ? `<span class="node-time">${escapeHtml(opts.completedAt)}</span>`
         : "";
+      const note = opts.note
+        ? `<span class="node-note">${escapeHtml(opts.note)}</span>`
+        : "";
       return `<button type="button" class="${cls}"${toggleAttr} title="${escapeHtml(opts.tip)}">
         <span class="node-dot"></span>
         <span class="node-name">${escapeHtml(opts.name)}</span>
         <span class="state">${opts.done ? "✓" : ""}</span>
         ${time}
+        ${note}
       </button>`;
     }
 
@@ -953,7 +1069,7 @@
           ntype: "node",
           refId: n.id,
           draggable: true,
-          html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, toggle: true, tip }),
+          html: nodeBtnHtml({ id: n.id, name: n.name, done, completedAt, note: n.note || "", toggle: true, tip }),
           children: kids.map(k => buildNode(k, depth + 1))
         };
       };
