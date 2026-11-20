@@ -178,7 +178,8 @@
     .mindmap-canvas {
       position: relative;
       min-height: 360px;
-      margin: 0 auto;
+      /* 居中由 JS 的 pan / applyFitView 负责；这里再用 margin:auto 会与 pan 叠加偏移 */
+      margin: 0;
       transform-origin: 0 0;
     }
     .mindmap-svg {
@@ -435,6 +436,7 @@
     <button type="button" data-act="note">插入说明</button>
     <button type="button" data-act="link">连线</button>
     <button type="button" data-act="unlink">取消连线</button>
+    <button type="button" data-act="unpin">移除目录标识</button>
     <button type="button" class="danger" data-act="delete">删除</button>
   </div>
 
@@ -500,10 +502,18 @@
     function normalizeAt(at, dateFallback) {
       if (at) {
         const raw = String(at).trim();
+        // 本应用写入的完成时间一律是上海墙上时间（formatShanghai），且不带时区后缀。
+        // 这类串若再按浏览器本地时区解析一次，非 +08:00 环境每次加载都会漂移。
+        if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(?:\.\d+)?)?$/.test(raw)) {
+          // 只校验形状不够：2026-99-99 99:99 也会命中。用 +08:00 解析确认是真实时间，
+          // 非法值继续往下走 Date.parse/dateFallback，不再原样返回脏数据。
+          const wall = new Date(raw.replace(" ", "T") + "+08:00");
+          if (!Number.isNaN(wall.getTime())) return raw.slice(0, 16).replace("T", " ");
+        }
+        // 带时区/ISO 的时间（Z、+08:00 等）：解析后统一换算成上海时间
         if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)) {
           const d = new Date(raw.replace(" ", "T"));
           if (!Number.isNaN(d.getTime())) return formatShanghai(d);
-          return raw.slice(0, 16).replace("T", " ");
         }
         if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw + " 00:00";
         const parsed = Date.parse(raw);
@@ -547,20 +557,46 @@
         n.done = done;
         n.completedAt = completedAt;
       }
-      // 若某分支在历史记录里已完成，但下级叶子尚未带上完成标记，则一并补上，避免父级完成态丢失
+      // 断环：沿 parentId 向上遇到环时，把当前节点提升为顶层。
+      // 环会让 nodeDone / collectLeafIds 等下游递归爆栈，这里一次性修好数据。
+      const byId = new Map(nodes.map(n => [n.id, n]));
+      for (const n of nodes) {
+        const seen = new Set([n.id]);
+        let pid = n.parentId;
+        while (pid) {
+          if (seen.has(pid)) { n.parentId = null; break; }
+          seen.add(pid);
+          const p = byId.get(pid);
+          pid = p ? p.parentId : null;
+        }
+      }
       const kidsOf = id => nodes.filter(n => (n.parentId || null) === id);
-      const leavesOf = id => {
+      const leavesOf = (id, seen) => {
+        seen = seen || new Set();
+        if (seen.has(id)) return []; // 损坏数据成环时防止无限递归
+        seen.add(id);
         const kids = kidsOf(id);
         if (!kids.length) return nodes.filter(n => n.id === id);
-        return kids.flatMap(k => leavesOf(k.id));
+        return kids.flatMap(k => leavesOf(k.id, seen));
       };
+      // 只有历史记录（旧版 nodeChecks/categoryChecks）里的分支完成态才允许下推到叶子；
+      // 节点自身残留的 done 不再下推，否则已完成的叶子长出子节点后，刷新会把新子节点复活成完成。
+      // 用 in 而不是真值判断：历史记录可能存在但 at 为空串。
       for (const n of nodes) {
-        if (!n.done || !kidsOf(n.id).length) continue;
+        if (!(n.id in history) || !kidsOf(n.id).length) continue;
         for (const leaf of leavesOf(n.id)) {
           if (!leaf.done) {
             leaf.done = true;
             leaf.completedAt = leaf.completedAt || n.completedAt;
           }
+        }
+      }
+      // 分支的完成态一律由子节点派生：清掉分支上残留的 done 标记。
+      // 否则「已完成的叶子后来长出子节点」会让下次加载把新子节点自动补成完成，且取消后刷新又复活。
+      for (const n of nodes) {
+        if (kidsOf(n.id).length) {
+          n.done = false;
+          n.completedAt = "";
         }
       }
       return nodes;
@@ -632,7 +668,7 @@
       }
       for (const it of items) {
         let id = String(it.id);
-        if (seen.has(id)) id = "n_" + id;
+        while (seen.has(id)) id = "n_" + id; // 只加一次前缀仍可能撞上已有的 n_ 开头的 id
         seen.add(id);
         nodes.push({
           id,
@@ -737,7 +773,8 @@
       if (raw) {
         try {
           const data = JSON.parse(raw);
-          if (data && (Array.isArray(data.nodes) || Array.isArray(data.items))) {
+          if (data && (Array.isArray(data.nodes) || Array.isArray(data.items) ||
+            (Array.isArray(data.categories) && data.categories.length))) {
             if (isLegacySampleOnly(data)) {
               // 只是旧示例树：丢弃，改用用户树默认数据（保留其 done / completedAt）
               return withTreeVersion(freshUserTreeState());
@@ -785,13 +822,36 @@
       return list;
     }
 
-    // 目录完成统计（纯函数）：统计目标目录 nodes 里全部节点的 done 字段。
-    // 整棵树都完成才算完成（allDone）；空树（0 个节点）按未完成处理，不抛错。
+    // 目录完成统计（纯函数）：按「整棵子树是否全部完成」递归判定每个节点，
+    // 而不是直接读节点自身的 done 字段。运行时勾选分支只会改它的叶子，
+    // 分支节点自身的 done 永远是旧值/初始值，直接统计会让「已完成 x/y」永远差
+    // 着所有分支的数量，整棵树全部完成时也永远到不了 allDone。
+    // 空树（0 个节点）按未完成处理，不抛错。
     function catalogDoneStats(cat) {
       const nodes = (cat && Array.isArray(cat.nodes)) ? cat.nodes : [];
       const total = nodes.length;
-      const done = nodes.reduce((acc, n) => acc + (n && n.done ? 1 : 0), 0);
-      return { total: total, done: done, allDone: total > 0 && done === total };
+      if (!total) return { total: 0, done: 0, allDone: false };
+      const kidsByParent = new Map();
+      for (const n of nodes) {
+        const p = (n && n.parentId) || null;
+        if (!kidsByParent.has(p)) kidsByParent.set(p, []);
+        kidsByParent.get(p).push(n);
+      }
+      const memo = new Map();
+      const visiting = new Set(); // 损坏数据里的环：按未完成处理，避免递归爆栈
+      const isDone = n => {
+        if (memo.has(n.id)) return memo.get(n.id);
+        if (visiting.has(n.id)) return false;
+        visiting.add(n.id);
+        const kids = kidsByParent.get(n.id) || [];
+        const d = kids.length ? kids.every(isDone) : !!n.done;
+        visiting.delete(n.id);
+        memo.set(n.id, d);
+        return d;
+      };
+      let done = 0;
+      for (const n of nodes) if (isDone(n)) done++;
+      return { total: total, done: done, allDone: done === total };
     }
 
     // 目录改名（纯函数，直接作用于目录对象）：trim 后为空或不变化则不改（返回 false）。
@@ -822,6 +882,7 @@
       return {
         id: String(src.id || genCatalogId()),
         name: String(src.name || "未命名目录").slice(0, 40),
+        archVersion: Number(src.archVersion) || 0,
         nodes: tree.nodes,
         links: tree.links,
         linkDone: tree.linkDone
@@ -842,6 +903,10 @@
     // 同一份代码生成，稳定唯一。
     const NEURCROSS_CATALOG_ID = "cat_neurcross_arch";
     const NEURCROSS_CATALOG_NAME = "NeurCross";
+    // 预置树版本：写进目录对象。已经升级到当前版本的目录不再按节点名探测是否
+    // 「完整」——否则用户正常改名/删除某个函数节点后，下次刷新整棵树会被重置，
+    // 里面的打卡记录、说明、连线全部丢失。
+    const NEURCROSS_ARCH_VERSION = 2;
     const NEURCROSS_DEFAULT_NODES = (function () {
       // 参数叶子：name=参数名，note=默认值说明
       const P = (name, note) => ({ name, note: note || "", kids: [] });
@@ -1230,10 +1295,10 @@
     //   A. 节点名中含 train_quad_mesh.py；
     //   B. 同时存在这些函数/类节点名（精确匹配 name）：
     //      add_args、ReconDataset、Network_predict_angle、MorseLoss_quad_mesh、same_seed。
-    // 否则视为需要升级（整棵预置树替换是允许的）。
+    // 这个判定现在只用于「按名字兜底」时识别预置目录，不再触发整树替换。
     // 注：用户最早那棵不完整 utils 示例树虽含 same_seed / normalize_mesh_export，
     // 但没有 train_quad_mesh.py，A 不成立 → 不会误判为完整树；
-    // 上一版「文件级架构」有 train_quad_mesh.py 和 nc_ 前缀，但没有 add_args 等函数节点 → 需要升级。
+    // 上一版「文件级架构」有 nc_ 前缀节点，仍会在按名字兜底查找时被识别为预置目录（但不再整树重建）。
     const NEURCROSS_FULL_TREE_MARKERS = [
       "add_args", "ReconDataset", "Network_predict_angle", "MorseLoss_quad_mesh", "same_seed"
     ];
@@ -1245,38 +1310,55 @@
       return NEURCROSS_FULL_TREE_MARKERS.every(nm => nameSet.has(nm));
     }
 
-    // 纯函数：确保 catalogs 里存在「NeurCross」目录并画上完整架构。
-    // - 查找：优先 name === "NeurCross"，其次稳定 id === cat_neurcross_arch；
-//   找到后保留其原有 id 和 name（不换随机 id，不动 currentCatalogId / 插入记录）。
-    // - 未找到：把预置目录 append 到末尾（不改 currentCatalogId）。
-    // - 已有但不是函数级完整树（示例树 / 上一版文件级架构）：替换 nodes / links / linkDone 为新完整预置树。
-    // - 已是函数级完整树：原样返回，不覆盖 done / completedAt / 打卡，也不重置 links。
-    function ensureNeurCrossCatalog(catalogs) {
+    // 纯函数：确保 catalogs 里存在「NeurCross」预置目录。
+    // - 查找：优先稳定 id（改名后仍可识别）；没有 id 时按 name 兜底，且必须「确实像预置树」。
+    // - 未找到：append 到末尾（不改 currentCatalogId）；用户删除过（hidden=true）则不补回。
+    // - 已存在：任何用户编辑（改名 / 删节点 / 自建节点 / 连线）都保留，只补 archVersion。
+    // - 只有空壳（nodes 为空）的目录才会播种完整预置树。
+    function ensureNeurCrossCatalog(catalogs, hidden) {
       if (!Array.isArray(catalogs)) return catalogs;
-      let cat = null;
-      for (const c of catalogs) {
-        if (c && c.name === NEURCROSS_CATALOG_NAME) { cat = c; break; }
-      }
+      // 稳定 id 优先（目录改名后 id 不变）。按名字兜底时必须确认它「确实像预置树」：
+      // 有 nc_ 前缀节点 / 已是完整树 / 已带版本号。否则用户把自己建的目录改名成
+      // NeurCross 后，刷新时整棵树会被预置架构覆盖。
+      let cat = catalogs.find(c => c && c.id === NEURCROSS_CATALOG_ID) || null;
       if (!cat) {
-        for (const c of catalogs) {
-          if (c && c.id === NEURCROSS_CATALOG_ID) { cat = c; break; }
+        const byName = catalogs.find(c => c && c.name === NEURCROSS_CATALOG_NAME) || null;
+        if (byName) {
+          const v = Number(byName.archVersion) || 0;
+          const looksPreset = v > 0 || isNeurCrossFullTree(byName) ||
+            (Array.isArray(byName.nodes) && byName.nodes.some(n => n && String(n.id).indexOf("nc_") === 0));
+          // 用户自建的同名目录：既不覆盖它，也不重复添加一个同名预置目录
+          if (!looksPreset) return catalogs;
+          cat = byName;
         }
       }
       if (!cat) {
+        if (hidden) return catalogs; // 用户删过且没再手动建：尊重删除，不复活
         catalogs.push({
           id: NEURCROSS_CATALOG_ID,
           name: NEURCROSS_CATALOG_NAME,
+          archVersion: NEURCROSS_ARCH_VERSION,
           nodes: cloneNeurCrossNodes(),
           links: NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b })),
           linkDone: {}
         });
         return catalogs;
       }
-      if (!isNeurCrossFullTree(cat)) {
-        cat.nodes = cloneNeurCrossNodes();
-        cat.links = NEURCROSS_DEFAULT_LINKS.map(l => ({ a: l.a, b: l.b }));
-        cat.linkDone = {};
+      // 已是当前版本：用户改名/删节点/调结构都视为正常编辑，原样保留
+      if (cat.archVersion === NEURCROSS_ARCH_VERSION) return catalogs;
+      // 无版本号的存量目录：只补版本号，绝不整树替换。
+      // 旧版数据里用户可能已经改名、删过节点、加过自己的节点；旧逻辑按节点名探测
+      // 「完整树」失败就整棵替换，会静默丢掉完成态、说明、自建节点和连线（审计 D2/U1）。
+      // 这里宁可保留旧结构，也不覆盖用户数据。
+      if (Array.isArray(cat.nodes) && cat.nodes.length) {
+        cat.archVersion = NEURCROSS_ARCH_VERSION;
+        return catalogs;
       }
+      // 只有空壳目录才播种完整预置树
+      cat.nodes = cloneNeurCrossNodes();
+      cat.links = normalizeLinks(NEURCROSS_DEFAULT_LINKS, cat.nodes);
+      cat.linkDone = {};
+      cat.archVersion = NEURCROSS_ARCH_VERSION;
       return catalogs;
     }
 
@@ -1286,14 +1368,22 @@
     //   （含旧示例树丢弃逻辑），整包迁入第一个目录「默认目录」，并成为当前目录；
     // - 无数据：用户默认树包成第一个目录。
     function resolveCatalogState(raw) {
-      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [] };
+      const base = { treeVersion: TREE_VERSION, sidebarOpen: true, catalogInserts: [], neurCrossHidden: false };
       if (raw) {
         try {
           const data = JSON.parse(raw);
           if (data && Array.isArray(data.catalogs) && data.catalogs.length) {
             const catalogs = data.catalogs.map(normalizeCatalog).filter(Boolean);
             if (catalogs.length) {
-              ensureNeurCrossCatalog(catalogs);
+              // 损坏/手改数据里的重复目录 id：第二个目录会永远打不开，删一个会把两个都删掉
+              const usedIds = new Set();
+              for (const c of catalogs) {
+                if (usedIds.has(c.id)) c.id = genCatalogId();
+                usedIds.add(c.id);
+              }
+              // 用户主动删除过 NeurCross 目录后不再自动补回（删除确认框承诺「无法恢复」）
+              const hidden = data.neurCrossHidden === true;
+              ensureNeurCrossCatalog(catalogs, hidden);
               const currentCatalogId = catalogs.some(c => c.id === String(data.currentCatalogId))
                 ? String(data.currentCatalogId)
                 : catalogs[0].id;
@@ -1301,7 +1391,8 @@
                 catalogs: catalogs,
                 currentCatalogId: currentCatalogId,
                 sidebarOpen: data.sidebarOpen !== false,
-                catalogInserts: normalizeCatalogInserts(data.catalogInserts, catalogs)
+                catalogInserts: normalizeCatalogInserts(data.catalogInserts, catalogs),
+                neurCrossHidden: hidden
               });
             }
           }
@@ -1316,7 +1407,7 @@
         linkDone: first.linkDone
       };
       const catalogs = [cat];
-      ensureNeurCrossCatalog(catalogs);
+      ensureNeurCrossCatalog(catalogs, false);
       return Object.assign(base, { catalogs: catalogs, currentCatalogId: cat.id });
     }
     /* ==== CATALOG-PURE-END ==== */
@@ -1326,7 +1417,15 @@
       try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
     };
     function load() { return resolveCatalogState(readStorage()); }
-    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    function save() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        // 隐私模式/配额满时写入会抛错：不能让它中断调用方后面的 render，
+        // 否则界面停在旧画面、后续操作全部失效。数据仍在内存，保留控制台提示。
+        console.warn("保存失败：本地存储不可用或已满", e);
+      }
+    }
 
     let state = load();
 
@@ -1358,9 +1457,11 @@
       return state.nodes.filter(n => (n.parentId || null) === p);
     }
     function isDescendant(possibleDescId, ancestorId) {
-      let cur = nodeById(possibleDescId), guard = 0;
-      while (cur && guard++ < 50) {
+      let cur = nodeById(possibleDescId);
+      const seen = new Set();
+      while (cur && !seen.has(cur.id)) {
         if (cur.id === ancestorId) return true;
+        seen.add(cur.id);
         cur = cur.parentId ? nodeById(cur.parentId) : null;
       }
       return false;
@@ -1370,8 +1471,8 @@
     function linksOf(id) { return state.links.filter(l => l.a === id || l.b === id); }
     function otherEndOf(link, id) { return link.a === id ? link.b : link.a; }
     function hasLinkBetween(a, b) {
-      const [x, y] = a < b ? [a, b] : [b, a];
-      return state.links.some(l => l.a === x && l.b === y);
+      // 兼容历史数据里未按 a<b 排序的边（如 NeurCross 预置连线），按无序比较
+      return state.links.some(l => (l.a === a && l.b === b) || (l.a === b && l.b === a));
     }
     // 沿连线可达的所有其他节点（防环）
     function linkedComponent(startId) {
@@ -1389,11 +1490,24 @@
     }
     // 设置某节点（及其全部叶子）的完成状态；viaLink 为真时打「联动完成」标记
     function setNodeDoneWithLeaves(nodeId, done, at, viaLink) {
+      const when = done ? (at || nowCompletedAt()) : "";
       for (const lid of collectLeafIds(nodeId)) {
         const leaf = nodeById(lid);
         if (!leaf) continue;
-        leaf.done = done;
-        leaf.completedAt = done ? (at || nowCompletedAt()) : "";
+        if (done) {
+          // 已完成的叶子保留原始完成时间：批量勾父分支不该把历史时间全部改成现在
+          if (!leaf.done || !leaf.completedAt) leaf.completedAt = when;
+          leaf.done = true;
+        } else {
+          leaf.done = false;
+          leaf.completedAt = "";
+        }
+      }
+      // 分支自身不保存 done（完成态由子节点派生）；残留的 true 会在下次加载时被下推给子节点
+      const self = nodeById(nodeId);
+      if (self && childNodes(self.id).length) {
+        self.done = false;
+        self.completedAt = "";
       }
       if (done && viaLink) state.linkDone[nodeId] = true;
       else delete state.linkDone[nodeId];
@@ -1413,8 +1527,12 @@
     }
     // 取消连线：不改任何完成状态，只删边
     function removeLinkBetween(a, b) {
-      const [x, y] = a < b ? [a, b] : [b, a];
-      state.links = state.links.filter(l => !(l.a === x && l.b === y));
+      state.links = state.links.filter(l => !((l.a === a && l.b === b) || (l.a === b && l.b === a)));
+      // 失去这条边后，两端若已无任何连线，联动完成标记就失去来源，一并清掉；
+      // 完成态本身保留（拆线不应撤销用户已完成的任务），避免未来取消别的连线时误伤它们。
+      for (const id of [a, b]) {
+        if (state.linkDone[id] && !state.links.some(l => l.a === id || l.b === id)) delete state.linkDone[id];
+      }
       save();
     }
 
@@ -2125,7 +2243,7 @@
             (stats.allDone
               ? "（全部完成 " + stats.done + "/" + stats.total + "）"
               : "（已完成 " + stats.done + "/" + stats.total + "）");
-          b.title = label;
+          b.title = label + "（右键可移除该标识）";
           b.setAttribute("aria-label", label);
           b.innerHTML = stats.allDone
             ? '<span class="catalog-logo-check" aria-hidden="true">✓</span>'
@@ -2378,6 +2496,9 @@
     const ctxMenu = document.getElementById("ctxMenu");
     let ctxTarget = null;
     let editor = null;
+    // 关闭内联编辑器的同一次点击会落到重排后的节点上，误触发打卡；
+    // 用一次性标记在 document 捕获阶段吞掉紧接着的那一次 click（不依赖时间窗）
+    let suppressNextTreeClick = false;
 
     function findNodeEl(refId) {
       if (!refId) return catTree.querySelector('.mm-node[data-ntype="root"]');
@@ -2544,7 +2665,13 @@
       closeEditor(false);
       if (linkMode) exitLinkMode();
       const isRoot = nodeEl.dataset.ntype === "root";
-      ctxTarget = { refId: nodeEl.dataset.ref || "", isRoot };
+      // 右键正好点在某个目录徽标上时，只移除这一个；点在节点其他位置则移除该节点的全部徽标
+      const logoEl = e.target.closest(".catalog-logo");
+      ctxTarget = {
+        refId: nodeEl.dataset.ref || "",
+        isRoot,
+        unpinTarget: logoEl && logoEl.dataset.catalogTarget ? logoEl.dataset.catalogTarget : ""
+      };
       const hasLinks = !isRoot && !!ctxTarget.refId && linksOf(ctxTarget.refId).length > 0;
       ctxMenu.querySelector('[data-act="rename"]').hidden = isRoot;
       // 插入/编辑说明：虚拟根隐藏；普通任务块（含 nc_root）都有。
@@ -2557,6 +2684,19 @@
       }
       ctxMenu.querySelector('[data-act="link"]').hidden = isRoot;
       ctxMenu.querySelector('[data-act="unlink"]').hidden = !hasLinks;
+      const unpinBtn = ctxMenu.querySelector('[data-act="unpin"]');
+      const inserts = (!isRoot && ctxTarget.refId)
+        ? state.catalogInserts.filter(ins =>
+            ins.catalog === state.currentCatalogId && ins.node === ctxTarget.refId &&
+            (!ctxTarget.unpinTarget || ins.target === ctxTarget.unpinTarget))
+        : [];
+      unpinBtn.hidden = !inserts.length;
+      if (inserts.length) {
+        const targetCat = state.catalogs.find(c => c.id === inserts[0].target);
+        unpinBtn.textContent = inserts.length > 1
+          ? "移除目录标识（" + inserts.length + "）"
+          : "移除目录标识" + (targetCat ? "「" + targetCat.name + "」" : "");
+      }
       ctxMenu.querySelector('[data-act="delete"]').hidden = isRoot;
       ctxMenu.hidden = false;
       ctxMenu.style.left = e.clientX + "px";
@@ -2604,6 +2744,9 @@
             done: false,
             completedAt: ""
           });
+          // 父节点从叶子变成分支：清掉它作为叶子时的 done，否则下次加载会把它下推给新子节点
+          const parent = ed.parentId ? nodeById(ed.parentId) : null;
+          if (parent) { parent.done = false; parent.completedAt = ""; }
           save();
         }
         render();
@@ -2718,8 +2861,15 @@
       }
       state.nodes = state.nodes.filter(n => n.id !== node.id);
       // 删除该节点涉及的所有连线与联动完成标记（子节点自己的连线保持不变）
+      const cutPeers = state.links
+        .filter(l => l.a === node.id || l.b === node.id)
+        .map(l => otherEndOf(l, node.id));
       state.links = state.links.filter(l => l.a !== node.id && l.b !== node.id);
       delete state.linkDone[node.id];
+      // 对端如果因此不再有任何连线，它的联动完成标记也失去来源，一并清掉
+      for (const peer of cutPeers) {
+        if (!state.links.some(l => l.a === peer || l.b === peer)) delete state.linkDone[peer];
+      }
       // 该节点上挂的目录插入 logo 一并清除
       state.catalogInserts = state.catalogInserts.filter(
         ins => !(ins.catalog === state.currentCatalogId && ins.node === node.id)
@@ -2778,6 +2928,7 @@
       if (!btn || !ctxTarget) return;
       const act = btn.dataset.act;
       const refId = ctxTarget.refId;
+      const unpinTarget = ctxTarget.unpinTarget || "";
       closeMenu();
       if (act === "add") startAddEditor(refId || null);
       else if (act === "rename") startRenameEditor(refId);
@@ -2792,6 +2943,13 @@
         } else {
           enterLinkMode(refId, "remove");
         }
+      } else if (act === "unpin") {
+        state.catalogInserts = state.catalogInserts.filter(ins =>
+          !(ins.catalog === state.currentCatalogId && ins.node === refId &&
+            (!unpinTarget || ins.target === unpinTarget))
+        );
+        save();
+        renderTree();
       }
     });
     ctxMenu.addEventListener("pointerdown", e => e.stopPropagation());
@@ -2817,10 +2975,27 @@
     });
 
     document.addEventListener("pointerdown", e => {
+      // 上一个 pointerdown 若以拖拽结束（没有 click），标记会残留；新一次交互开始时清掉
+      suppressNextTreeClick = false;
       if (!ctxMenu.hidden && !ctxMenu.contains(e.target)) closeMenu();
       if (!linkCtxMenu.hidden && !linkCtxMenu.contains(e.target)) closeLinkMenu();
       if (!catCtxMenu.hidden && !catCtxMenu.contains(e.target)) closeCatMenu();
-      if (editor && !editor.wrap.contains(e.target)) closeEditor(false);
+      if (editor && !editor.wrap.contains(e.target)) {
+        const insideTree = e.target instanceof Node && catTree.contains(e.target);
+        closeEditor(false);
+        if (insideTree) suppressNextTreeClick = true;
+      }
+    }, true);
+
+    // 一次性消费：关闭编辑器后的同一次点击不再落到重排后的节点上触发打卡。
+    // 若上一次 pointerdown 以拖拽结束而没有产生 click，下一次 pointerdown 会清掉残留标记。
+    document.addEventListener("click", e => {
+      if (!suppressNextTreeClick) return;
+      suppressNextTreeClick = false;
+      if (e.target instanceof Node && catTree.contains(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     }, true);
 
     // ---------- 空白处拖动画布；节点拖拽仍用于调整层级 ----------
@@ -2886,6 +3061,7 @@
       const node = e.target.closest(".mm-node[draggable='true']");
       if (!node) return;
       dragId = node.dataset.ref;
+      catalogDragId = null; // 两种拖拽互斥，避免上一次拖拽的 id 残留
       node.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", dragId);
@@ -2936,6 +3112,7 @@
         const catTarget = e.target.closest('.mm-node[data-ntype="node"]');
         const nodeId = catTarget ? (catTarget.dataset.ref || "") : "";
         const dragCat = catalogDragId;
+        catalogDragId = null;
         clearCatDropMarks();
         if (nodeId) insertCatalogOnNode(dragCat, nodeId);
         return;
@@ -2949,6 +3126,10 @@
       if (!dragged) return;
       e.preventDefault();
       dragged.parentId = targetId;
+      // 目标从叶子变成分支：清掉它作为叶子时的 done，避免下次加载下推给子节点
+      const newParent = targetId ? nodeById(targetId) : null;
+      if (newParent) { newParent.done = false; newParent.completedAt = ""; }
+      dragId = null; // drop 后 render 会换掉 DOM，dragend 可能收不到，这里主动清理
       save(); render();
     });
 
@@ -3063,6 +3244,9 @@
       const cat = state.catalogs.find(c => c.id === id);
       if (!cat) return;
       if (!confirm(`确定删除目录「${cat.name}」？该目录整棵树、打卡记录都会删除，且无法恢复。`)) return;
+      if (cat.id === NEURCROSS_CATALOG_ID || cat.name === NEURCROSS_CATALOG_NAME) {
+        state.neurCrossHidden = true; // 删除要能持久，刷新后不再自动补回
+      }
       state.catalogs = state.catalogs.filter(c => c.id !== id);
       // 清掉所有指向它的插入 logo（无论作为所在目录还是目标目录）
       state.catalogInserts = state.catalogInserts.filter(
@@ -3225,6 +3409,7 @@
       const li = e.target.closest(".catalog-item");
       if (!li) return;
       catalogDragId = li.dataset.catId;
+      dragId = null; // 两种拖拽互斥
       li.classList.add("dragging-cat");
       e.dataTransfer.effectAllowed = "link";
       e.dataTransfer.setData(CATALOG_DRAG_TYPE, String(catalogDragId));
