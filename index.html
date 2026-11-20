@@ -126,10 +126,14 @@
     }
     .catalog-logo {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 30px; height: 30px; padding: 0; border-radius: 50%;
+      /* 直径由 JS 按文本实测自适应（见 sizeCatalogLogo），这里只给 30px 下限，
+         保证任何位数的进度数字（9/10、345/494、1000/1000…）都完整落在圆内；
+         宽高始终相等 + border-radius:50% → 永远是正圆 */
+      min-width: 30px; min-height: 30px; padding: 0; border-radius: 50%;
       font-size: 9.5px; line-height: 1; letter-spacing: 0;
       background: var(--paper);
       box-shadow: 0 2px 6px rgba(30, 36, 48, 0.12);
+      white-space: nowrap;
     }
     .catalog-logo.todo {
       border: 2px dashed #b42318; /* TODO_HEX：与未完成任务块同色 */
@@ -141,6 +145,9 @@
     }
     .catalog-logo:hover { transform: translateY(-1px); }
     .catalog-logo .catalog-logo-check { font-size: 13px; }
+    .catalog-logo .catalog-logo-count {
+      white-space: nowrap; display: inline-block; /* 便于 offsetWidth 精确测宽 */
+    }
 
     /* ===== 全屏树状图 ===== */
     .tree-card {
@@ -1598,7 +1605,7 @@
       const key = [view.x1, view.y1, view.x2, view.y2].map(v => Math.round(v / 60)).join("|");
       if (!force && key === lastViewKey) return;
       lastViewKey = key;
-      const { nodes, edges, cardRects, corridors, byNid } = layoutCache;
+      const { nodes, edges, cardRects, corridors, byNid, spines } = layoutCache;
 
       for (const n of nodes) {
         const el = byNid.get(n.nid);
@@ -1608,6 +1615,11 @@
       }
 
       const parts = [];
+      // 多兄弟的主干+竖脊（父色）先画垫底，各子的水平接出（子色）再叠上去
+      for (const s of (spines || [])) {
+        if (!rectInView(s.bbox, view)) continue;
+        parts.push(`<path class="mindmap-branch" d="${s.d}" fill="${s.fill}" />`);
+      }
       for (const e of edges) {
         if (!e.d) continue;
         if (!(nodeInView(e.from, view) && nodeInView(e.to, view))) continue;
@@ -1653,8 +1665,12 @@
        任务连线路由（纯函数，无 DOM 依赖）：
        端点取两端卡片「朝向对方那条边」的中点 → 默认一条完整的圆滑三次 S 曲线
        （控制点沿接驳边外法向伸出，水平/法向离开 + 法向接入，一条弯到位）；
-       soft 障碍（分支带等）忽略；只有明显穿过其他任务卡片时才用两段三次曲线
-       做一个大而圆的迂回。rlAStar / rlSmoothPath 保留但不再用于画用户看到的虚线。
+       soft 障碍（分支带等）忽略；hard 任务卡片也不再触发改线——虚线允许从
+       空白处穿过卡片，永远只画这一条单段三次 S 曲线，保证拖动/平移/缩放时
+       同一对节点的连线形状连续稳定、不甩大弯。
+       ⚠️ 不要再按 hardRects/softRects 切换到「两段三次大迂回」：那种多倍率
+       偏移方案会在节点轻微移动时于短 S 线和巨大绕行之间跳变。
+       rlAStar / rlSmoothPath 保留但不再用于画用户看到的虚线。
        route-selfcheck 会抽取本段做几何自检。 */
     const RL_MARGIN = 12; // 障碍膨胀边距（卡片外扩后视为不可走）
     const RL_CELL = 12;   // A* 栅格边长
@@ -1891,49 +1907,19 @@
     }
     // 规划一条任务连线：aRect/bRect 为两端卡片矩形（同一数组内对象引用）。
     // 起终点为各自「朝向对方那条边」的中点（rlAttachPoint 双矩形版本）。
-    // 默认就是一条完整的圆滑三次 S 曲线（rlTwoPointCurve 同款：控制点沿接驳边
-    // 外法向伸出），soft 障碍（分支走廊等）直接忽略——虚线允许穿过分支带，
-    // 不再为此跑 A* / Chaikin / 多段倒圆角产生楼梯状折线。
-    // 只有当这条 S 曲线明显穿过其他任务块（hard 卡片，不含两端）时，
-    // 才做一个大而圆的迂回：把中点沿 pa→pb 法向向两侧推开，用两段三次曲线
-    // （两端切线仍沿各自接驳边法向）拼成一条大圆弧感绕行，一两个大弯。
+    // 永远只有一条完整的单段圆滑三次 S 曲线（rlTwoPointCurve：控制点沿
+    // 接驳边外法向伸出）。hardRects/softRects/bounds 一律不影响形状：
+    // soft 障碍（分支带等）忽略，hard 任务卡片也不再触发改线——虚线宁可
+    // 从空白处穿过卡片，也不做任何大迂回；否则节点或视野稍一移动就会在
+    // 短 S 线与巨大绕行之间切换，用户看到的就是「稍微动一下就全乱」。
+    // ⚠️ 请勿按旧逻辑恢复「中点法向大偏移 + 两段 C 命令」的避障分支。
     // 返回 { d, pts }。
     function rlPlanLinkPath(aRect, bRect, hardRects, softRects, bounds) {
       const sideA = rlSideToward(aRect, bRect);
       const sideB = rlSideToward(bRect, aRect);
       const pa = rlSidePoint(aRect, sideA);
       const pb = rlSidePoint(bRect, sideB);
-      const hard = hardRects
-        .filter(r => r !== aRect && r !== bRect)
-        .map(r => rlInflate(r, RL_MARGIN));
-      const hit = pts => pts.some(p => hard.some(o => rlPointInRect(p.x, p.y, o)));
-      const direct = rlTwoPointCurve(pa, pb);
-      if (!hard.length || !hit(direct.pts)) return direct;
-      // 大圆弧迂回：中点沿 pa→pb 的法向偏移 off，两段三次曲线过偏移中点；
-      // 两侧、从小到大依次尝试，取第一条不穿硬卡片的
-      const L = Math.hypot(pb.x - pa.x, pb.y - pa.y) || 1;
-      const nx = -(pb.y - pa.y) / L, ny = (pb.x - pa.x) / L;
-      const tx = (pb.x - pa.x) / L, ty = (pb.y - pa.y) / L;
-      const k = Math.min(rlExitLen(pa, pb), L * 0.45);
-      const f = v => Math.round(v * 10) / 10;
-      for (const s of [1, -1]) {
-        for (const mult of [1, 1.8, 2.8, 4.2, 6]) {
-          const off = Math.max(44, k * 1.4) * mult * s;
-          const mid = { x: (pa.x + pb.x) / 2 + nx * off, y: (pa.y + pb.y) / 2 + ny * off };
-          const c1a = { x: pa.x + k * pa.nx, y: pa.y + k * pa.ny };
-          const c2a = { x: mid.x - tx * k, y: mid.y - ty * k };
-          const c1b = { x: mid.x + tx * k, y: mid.y + ty * k };
-          const c2b = { x: pb.x + k * pb.nx, y: pb.y + k * pb.ny };
-          const pts = rlSampleCubic(pa, c1a, c2a, mid, 14)
-            .concat(rlSampleCubic(mid, c1b, c2b, pb, 14).slice(1));
-          if (hit(pts)) continue;
-          const d = "M " + f(pa.x) + " " + f(pa.y) +
-            " C " + f(c1a.x) + " " + f(c1a.y) + ", " + f(c2a.x) + " " + f(c2a.y) + ", " + f(mid.x) + " " + f(mid.y) +
-            " C " + f(c1b.x) + " " + f(c1b.y) + ", " + f(c2b.x) + " " + f(c2b.y) + ", " + f(pb.x) + " " + f(pb.y);
-          return { d: d, pts: pts };
-        }
-      }
-      return direct; // 兜底：宁可直穿也不再画多拐点折线
+      return rlTwoPointCurve(pa, pb);
     }
     /* ==== ROUTE-LIB-END ==== */
 
@@ -1943,6 +1929,74 @@
     const BRANCH_HALF_W_CHILD = 2.0;
     const BRANCH_STEM = 14;
     const BRANCH_SAMPLES = 40;
+    // 局部避挡走线走廊：父块右缘与子块左缘之间至少留出的水平空隙。
+    // 只在「父右缘贴上/重到子块」时把该父的子树右移这么多，不动全局 LEVEL_GAP
+    const ROUTE_GAP = 48;
+    // 多兄弟分叉：竖脊两端收窄到的半宽（主干父端 3.9 → 脊端 3.2，水平接出再收到子端 2.0）
+    const BRANCH_HALF_W_SPINE = 3.2;
+
+    // 通用 ribbon：给定密集采样中心线 pts，沿每点切线的单位法线扩出半宽，
+    // 半宽沿弧长从 w0 平滑收到 w1（与 cubicRibbon 同一法线偏移规则，
+    // 只是支持「折线 + 圆角」中心线，不再退回 y±w）
+    function ribbonFromSamples(pts, w0, w1) {
+      const top = [];
+      const bot = [];
+      const cum = [0];
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) {
+        total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        cum.push(total);
+      }
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const prev = pts[Math.max(0, i - 1)];
+        const next = pts[Math.min(pts.length - 1, i + 1)];
+        let dx = next.x - prev.x, dy = next.y - prev.y;
+        const len = Math.hypot(dx, dy);
+        const nx = len > 1e-6 ? -dy / len : 0;
+        const ny = len > 1e-6 ? dx / len : 1;
+        const t = total > 1e-6 ? cum[i] / total : 0;
+        const w = w0 + (w1 - w0) * t;
+        top.push(`${p.x + nx * w} ${p.y + ny * w}`);
+        bot.push(`${p.x - nx * w} ${p.y - ny * w}`);
+      }
+      return `M ${top.join(" L ")} L ${bot.reverse().join(" L ")} Z`;
+    }
+
+    // 折线顶点圆角化并密集采样：内角用半径 radius 的圆弧替代
+    // （半径自动夹到相邻段长的一半），直线段每约 5px 采一个点，
+    // 供 ribbonFromSamples 沿法线扩宽
+    function sampleRoundedPolyline(pts, radius) {
+      const out = [{ x: pts[0].x, y: pts[0].y }];
+      const seg = (a, b) => {
+        const L = Math.hypot(b.x - a.x, b.y - a.y);
+        const steps = Math.max(1, Math.round(L / 5));
+        for (let k = 1; k <= steps; k++) {
+          out.push({ x: a.x + (b.x - a.x) * k / steps, y: a.y + (b.y - a.y) * k / steps });
+        }
+      };
+      let cur = pts[0];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const p = pts[i], a = pts[i - 1], b = pts[i + 1];
+        const l1 = Math.hypot(p.x - a.x, p.y - a.y) || 1;
+        const l2 = Math.hypot(b.x - p.x, b.y - p.y) || 1;
+        const r = Math.min(radius, l1 * 0.5, l2 * 0.5);
+        const t1 = { x: p.x + (a.x - p.x) / l1 * r, y: p.y + (a.y - p.y) / l1 * r };
+        const t2 = { x: p.x + (b.x - p.x) / l2 * r, y: p.y + (b.y - p.y) / l2 * r };
+        seg(cur, t1);
+        // 圆弧近似：控制点取原角点的二次贝塞尔（8 段）
+        for (let k = 1; k <= 8; k++) {
+          const t = k / 8, mt = 1 - t;
+          out.push({
+            x: mt * mt * t1.x + 2 * mt * t * p.x + t * t * t2.x,
+            y: mt * mt * t1.y + 2 * mt * t * p.y + t * t * t2.y
+          });
+        }
+        cur = t2;
+      }
+      seg(cur, pts[pts.length - 1]);
+      return out;
+    }
 
     // 父子实线分支色带：中心线仍是 (p0 → 短水平 stem 控制点 → 三次贝塞尔 → p1)，
     // 但两侧不再用 y±w 的屏幕竖直偏移，而是沿贝塞尔本地切线的单位法线 N 扩出半宽，
@@ -2034,6 +2088,21 @@
       // 加大正圆线框并带目标目录整棵树的完成状态（每次 render 都按最新 done 重算）：
       // 未全完成 = 红虚线圆（TODO_HEX）+ 已完成比例；全部完成 = 绿实线圆（DONE_HEX）+ 对勾。
       // 不参与布局、不挡文字，也不影响节点点击/右键/拖拽。
+      // 圆形徽标自适应：直径 = max(30px 下限, 文本宽+左右内边距, 文本高+上下内边距)
+      // + 两侧边框（全局 box-sizing:border-box，width 含 border）。
+      // 文本用 offsetWidth/offsetHeight 实测（布局像素，不受视图缩放 transform 影响），
+      // 任何位数的进度数字都完整落在圆内并留 4px 内边距；宽高恒等 + border-radius:50%
+      // 保证永远是正圆，短文本（9/10、✓）仍保持接近 30px 下限不会无故撑大。
+      function sizeCatalogLogo(b) {
+        const span = b.querySelector(".catalog-logo-count, .catalog-logo-check");
+        if (!span) return;
+        const pad = 4;
+        const tw = span.offsetWidth || 0;
+        const th = Math.max(span.offsetHeight || 0, 10);
+        const dia = Math.ceil(Math.max(30, tw + pad * 2, th + pad * 2)) + 4;
+        b.style.width = dia + "px";
+        b.style.height = dia + "px";
+      }
       for (const el of box.querySelectorAll('.mm-node[data-ntype="node"]')) {
         const ref = el.dataset.ref;
         const inserts = state.catalogInserts.filter(
@@ -2063,7 +2132,11 @@
             : '<span class="catalog-logo-count" aria-hidden="true">' + stats.done + "/" + stats.total + "</span>";
           logoWrap.appendChild(b);
         }
-        if (logoWrap.children.length) el.appendChild(logoWrap);
+        if (logoWrap.children.length) {
+          el.appendChild(logoWrap);
+          // 挂进 DOM 后再量文本（此时才有可靠布局），逐个把圆框撑到包住数字
+          for (const b of logoWrap.children) sizeCatalogLogo(b);
+        }
       }
 
       // 切目录 / 首次打开：先用第一遍布局的粗略高度预 fit 一帧，
@@ -2115,6 +2188,47 @@
           if (el) el.style.top = n.y + "px";
         }
 
+        // ---- 局部避挡（只横向，不动行高） ----
+        // 第一遍布局 node.x = PAD_X_TREE + depth * LEVEL_GAP 不看父块实际宽度，
+        // 父块标题一长，右缘会贴上甚至压到子块，走线被挤进缝里。
+        // 这里在已量到每个 .node-btn 实际宽度后，自上而下检查：
+        // 若 child.x < parent.x + parent.w + ROUTE_GAP，把「该父的所有孩子及其
+        // 后代」整体右移 delta（同父孩子同一列仍对齐，后代一起右移），
+        // 在父右缘与子左缘之间留出走线走廊；本来就有空隙的父子不动，
+        // 不加大全局 LEVEL_GAP / 行高，整棵树不会因此变宽变高
+        const btnWByNid = new Map();
+        for (const n of allNodes) {
+          const el = elByNid.get(n.nid);
+          const btn = el && el.querySelector(".node-btn");
+          if (btn) btnWByNid.set(n.nid, btn.offsetWidth);
+        }
+        (function shiftBlocked(node) {
+          const w = btnWByNid.get(node.nid) || 0;
+          const need = node.x + w + ROUTE_GAP;
+          let delta = 0;
+          for (const ch of node.children) {
+            if (ch.x < need) delta = Math.max(delta, need - ch.x);
+          }
+          if (delta > 0.5) {
+            const mv = n2 => { n2.x += delta; n2.children.forEach(mv); };
+            node.children.forEach(mv); // 只推孩子及其后代，父块自己不动
+          }
+          node.children.forEach(shiftBlocked);
+        })(root);
+        // 修正后统一更新节点 left、logicalW、svg viewBox（高度仍用上面实测的 finalH）
+        let maxRight = 0;
+        for (const n of allNodes) {
+          const el = elByNid.get(n.nid);
+          if (el) el.style.left = n.x + "px";
+          maxRight = Math.max(maxRight, n.x + (btnWByNid.get(n.nid) || 0));
+        }
+        const finalW = Math.max(totalW, maxRight + PAD_X_TREE);
+        if (finalW !== logicalW) {
+          logicalW = finalW;
+          box.style.width = finalW + "px";
+        }
+        svg.setAttribute("viewBox", "0 0 " + logicalW + " " + finalH);
+
         // 卡片几何（世界坐标）与父子分支 path 一次性缓存好；
         // 之后平移/缩放的视野更新只做「筛选 + 拼 innerHTML」，不再重复测量
         const cardRects = [];
@@ -2138,16 +2252,18 @@
         // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带），
         // 分支 path 用布局坐标直接计算，不为每条边做 DOM 测量
         const branchCorridors = [];
-        // 同一父节点下的兄弟分支：思维导图式紧凑分叉（markmap / Mind Elixir 走线）。
-        // 所有兄弟都从「父块右缘中点」出发，水平离开（c1.y === 出发 y）、
-        // 水平接入（c2.y === 子节点 y），一条三次曲线弯到位，中途不折行；
-        // 起点最多做「刚好避免色带完全重叠」的极小错开（每档约半个带宽，
-        // 远小于胶囊高度，不再沿右缘拉开一大截），stem 统一且很短
-        // （BRANCH_STEM≈14），出发段彼此叠合成一小段自然的共用主干。
-        // 端点落在朝向对方那条边的中点（父右缘中点 / 子左缘中点），
-        // 并向块内重叠 1px，由上层节点卡片盖住，消抗锯齿细缝、不露洞。
-        // 分支带继续用切线法线偏移（cubicRibbon）：父端半宽 BRANCH_HALF_W_PARENT、
-        // 子端半宽 BRANCH_HALF_W_CHILD，宽度不随线长/走向变细；子端水平切线接入。
+        // 同一父节点下的兄弟分支：N==1 用水平进出的一条圆滑三次曲线（cubicRibbon）；
+        // N>=2 改为「短主干 + 竖向分配脊 + 圆角水平接出」——
+        // 父块右缘中点先水平伸出一段短主干（BRANCH_STEM 内），再沿一条竖脊
+        // （x = 主干末端，y 覆盖各子节点中心）分配，每个子节点从脊上自己的 y
+        // 用圆角（约 8–12px）水平接进子块左缘中点。各子线从脊上不同的 y 接出，
+        // 间距即子节点垂直间距，不再从同一个小口扇出多条重叠色带糊成刷子；
+        // 脊落在第 1 步留出的「父右缘 ↔ 子左缘」走廊里，不会擦过任何兄弟块。
+        // 主干+脊用父节点完成色、水平接出用子色；接出的起始小竖段叠在脊上，
+        // 接头不露洞。宽度仍是中心线切线法线扩出：主干父端 3.9 → 脊端 3.2 →
+        // 子端 2.0（cubicRibbon / ribbonFromSamples 同一套法线规则）。
+        // 端点落在朝向对方那条边的中点并向块内重叠 1px，贴边无缝。
+        const branchSpines = [];
         const edgeGroups = new Map();
         for (const e of edges) {
           let grp = edgeGroups.get(e.from.nid);
@@ -2157,39 +2273,83 @@
         for (const grp of edgeGroups.values()) {
           const rf = rectByNid.get(grp[0].from.nid);
           if (!rf) continue;
-          const targets = grp.map(e => {
-            const rt = rectByNid.get(e.to.nid);
-            return rt ? { x2: rt.x + 1, y2: e.to.y } : null;
-          });
           const n = grp.length;
-          // 极小错开：每档约 4.8px（父端带宽 7.8px），只避免完全叠死，
-          // 视觉上仍是同一个出发点
-          const offStep = n >= 2 ? BRANCH_HALF_W_PARENT + 0.9 : 0;
-          grp.forEach((e, i) => {
-            const tgt = targets[i];
-            if (!tgt) return;
-            const x1 = rf.x + rf.w - 1;
-            const y1 = grp[0].from.y + (n >= 2 ? (i - (n - 1) / 2) * offStep : 0);
-            const { x2, y2 } = tgt;
+          const x1 = rf.x + rf.w - 1;      // 父块右缘中点（向块内 1px）
+          const y0 = rf.y + rf.h / 2;
+          const kids = grp.map(e => {
+            const rt = rectByNid.get(e.to.nid);
+            return rt ? { e, rt, x2: rt.x + 1, y2: rt.y + rt.h / 2 } : null;
+          }).filter(Boolean);
+          if (!kids.length) continue;
 
-            branchCorridors.push(rlRect(
-              Math.min(x1, x2), Math.min(y1, y2),
-              Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
-            ));
-
+          if (n === 1) {
+            // 单子：保持水平离开/水平接入的圆滑三次曲线
+            const { x2, y2 } = kids[0];
             const stem = Math.max(5, Math.min(BRANCH_STEM, (x2 - x1) * 0.45));
-            const cx1 = x1 + stem; // 水平离开：c1 与起点同 y
-            const cx2 = x2 - stem; // 水平接入：c2 与终点同 y
-
-            e.d = cubicRibbon(
-              { x: x1, y: y1 }, { x: cx1, y: y1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
+            kids[0].e.d = cubicRibbon(
+              { x: x1, y: y0 }, { x: x1 + stem, y: y0 },
+              { x: x2 - stem, y: y2 }, { x: x2, y: y2 },
               BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
             );
-          });
+            branchCorridors.push(rlRect(
+              Math.min(x1, x2), Math.min(y0, y2),
+              Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y0))
+            ));
+            continue;
+          }
+
+          // 多兄弟：短主干 + 竖脊（父色） + 圆角水平接出（子色）
+          const childLeft = Math.min(...kids.map(k => k.x2));
+          const corridor = Math.max(12, childLeft - x1);
+          const trunk = Math.max(5, Math.min(BRANCH_STEM, corridor * 0.4));
+          const spineX = x1 + trunk;
+          const ys = kids.map(k => k.y2);
+          const spineTop = Math.min(y0, ...ys);
+          const spineBot = Math.max(y0, ...ys);
+          const spineColor = rf.done ? DONE_HEX : TODO_HEX;
+
+          // 主干 + 竖脊（两个方向各一条，共用主干段几何一致、同色叠加无痕）
+          const mkSpine = yEnd => ribbonFromSamples(
+            sampleRoundedPolyline(
+              [{ x: x1, y: y0 }, { x: spineX, y: y0 }, { x: spineX, y: yEnd }],
+              Math.min(10, trunk)
+            ),
+            BRANCH_HALF_W_PARENT, BRANCH_HALF_W_SPINE
+          );
+          const spineDs = [];
+          if (spineBot - y0 > 0.5) spineDs.push(mkSpine(spineBot));
+          if (y0 - spineTop > 0.5) spineDs.push(mkSpine(spineTop));
+          if (spineDs.length) {
+            branchSpines.push({
+              d: spineDs.join(" "),
+              fill: spineColor,
+              bbox: rlRect(x1, spineTop, spineX - x1, spineBot - spineTop)
+            });
+          }
+
+          branchCorridors.push(rlRect(
+            x1, spineTop, Math.max(1, childLeft - x1), Math.max(1, spineBot - spineTop)
+          ));
+
+          for (const k of kids) {
+            const r = Math.max(2, Math.min(10, trunk, Math.abs(k.y2 - y0) * 0.5,
+              Math.max(2, k.x2 - spineX) * 0.5));
+            const dir = k.y2 > y0 ? 1 : (k.y2 < y0 ? -1 : 0);
+            // 接出段：从脊上该子的 y 出发（先沿脊方向压一小段竖段再圆角转水平），
+            // 竖段长度不超过 |y2-y0|-1（止于主干接点前 1px，两侧紧邻的子不会
+            // 在接点处相触，且竖段叠在父色脊上，接头不露洞）
+            const stub = dir === 0 ? 0 : Math.max(0, Math.min(2 * r, Math.abs(k.y2 - y0) - 1));
+            const pts = dir === 0
+              ? [{ x: spineX, y: y0 }, { x: k.x2, y: y0 }]
+              : [{ x: spineX, y: k.y2 - dir * stub }, { x: spineX, y: k.y2 }, { x: k.x2, y: k.y2 }];
+            k.e.d = ribbonFromSamples(sampleRoundedPolyline(pts, r),
+              BRANCH_HALF_W_SPINE, BRANCH_HALF_W_CHILD);
+          }
         }
 
         layoutCache = {
-          nodes: allNodes, edges, cardRects, corridors: branchCorridors, byNid: elByNid
+          nodes: allNodes, edges, cardRects, corridors: branchCorridors, byNid: elByNid,
+          spines: branchSpines
         };
         updateDynamicZoomMin();
         if (pendingAutoFit) {
