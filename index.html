@@ -2127,32 +2127,67 @@
         // 父子分支所占走廊（连线规划时作为软障碍，尽量绕开分支带），
         // 分支 path 用布局坐标直接计算，不为每条边做 DOM 测量
         const branchCorridors = [];
+        // 同一父节点下的兄弟分支一出发就错开，不再共用同一个出发点 + 同一段水平 stem：
+        // 按父节点分组（组内边已按子节点从上到下的布局顺序排列），把各自的接驳点
+        // 沿父块右缘上下分布，并让第一控制点朝各自子节点方向偏移
+        // （c1.y = yStart + α*(y2 - yStart)），向上的孩子一开始就往上离开、
+        // 向下的往下离开，曲线在前半段就分散，色带不会叠成一根粗带。
+        // N==1 时仍用父块垂直中心 from.y + 纯水平 stem，单条线走线与之前完全一致。
+        // 分支带继续用切线法线偏移（cubicRibbon）：父端半宽 BRANCH_HALF_W_PARENT、
+        // 子端半宽 BRANCH_HALF_W_CHILD，宽度不随线长/走向变细；子端水平切线接入。
+        const SIB_ALPHA = 0.32; // c1 朝子节点方向的偏移比例
+        const SIB_MIN_GAP = 2 * BRANCH_HALF_W_PARENT + 2.4; // 出发处色带不重叠的最小起点间距
+        const edgeGroups = new Map();
         for (const e of edges) {
-          const { from, to } = e;
-          const rf = rectByNid.get(from.nid), rt = rectByNid.get(to.nid);
-          if (!rf || !rt) continue;
-          const x1 = rf.x + rf.w - 2;
-          const y1 = from.y;
-          const x2 = rt.x + 2;
-          const y2 = to.y;
+          let grp = edgeGroups.get(e.from.nid);
+          if (!grp) edgeGroups.set(e.from.nid, grp = []);
+          grp.push(e);
+        }
+        for (const grp of edgeGroups.values()) {
+          const rf = rectByNid.get(grp[0].from.nid);
+          if (!rf) continue;
+          const targets = grp.map(e => {
+            const rt = rectByNid.get(e.to.nid);
+            return rt ? { x2: rt.x + 2, y2: e.to.y } : null;
+          });
+          const n = grp.length;
+          // 出发点 yStart：N==1 用父块垂直中心（旧行为不变）；
+          // N>=2 优先在父块右缘 [y+pad, y+h-pad] 内均布，高度不够排开时
+          // 宁可略微超出胶囊上下沿，也不挤在中点共用一点
+          let yStarts;
+          if (n === 1) {
+            yStarts = [grp[0].from.y];
+          } else {
+            const pad = 6;
+            let gap = (rf.h - 2 * pad) / (n - 1);
+            if (gap < SIB_MIN_GAP) gap = SIB_MIN_GAP;
+            const cy = grp[0].from.y;
+            yStarts = grp.map((_, i) => cy + (i - (n - 1) / 2) * gap);
+          }
+          grp.forEach((e, i) => {
+            const tgt = targets[i];
+            if (!tgt) return;
+            const x1 = rf.x + rf.w - 2;
+            const y1 = yStarts[i];
+            const { x2, y2 } = tgt;
 
-          branchCorridors.push(rlRect(
-            Math.min(x1, x2), Math.min(y1, y2),
-            Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
-          ));
+            branchCorridors.push(rlRect(
+              Math.min(x1, x2), Math.min(y1, y2),
+              Math.max(1, Math.abs(x2 - x1)), Math.max(1, Math.abs(y2 - y1))
+            ));
 
-          // 分支带用切线法线偏移（cubicRibbon）：父端半宽 BRANCH_HALF_W_PARENT、
-          // 子端半宽 BRANCH_HALF_W_CHILD，沿 t 平滑收束，长短/走向不同粗细一致
-          // 水平段统一且尽量短：父节点右边先伸出固定短水平段，再弯曲接向子节点，
-          // 不再按 dx 的 0.52 / 0.45 比例把控制点拉远
-          const stem = Math.max(10, Math.min(BRANCH_STEM, (x2 - x1) * 0.5));
-          const cx1 = x1 + stem;
-          const cx2 = x2 - stem;
+            const stem = Math.max(10, Math.min(BRANCH_STEM, (x2 - x1) * 0.5));
+            // 多兄弟时给略微不同的 stem（±14%），进一步避免前段控制点重合
+            const stemI = n >= 2 ? stem * (1 + 0.14 * (i / (n - 1) - 0.5) * 2) : stem;
+            const cx1 = x1 + stemI;
+            const cy1 = n >= 2 ? y1 + SIB_ALPHA * (y2 - y1) : y1;
+            const cx2 = x2 - stem;
 
-          e.d = cubicRibbon(
-            { x: x1, y: y1 }, { x: cx1, y: y1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
-            BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
-          );
+            e.d = cubicRibbon(
+              { x: x1, y: y1 }, { x: cx1, y: cy1 }, { x: cx2, y: y2 }, { x: x2, y: y2 },
+              BRANCH_HALF_W_PARENT, BRANCH_HALF_W_CHILD
+            );
+          });
         }
 
         layoutCache = {
